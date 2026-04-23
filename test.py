@@ -14,9 +14,6 @@ jobs = data["application"]["jobs"]
 messages = data["application"]["messages"]
 platform_nodes = data["platform"]["nodes"]
 
-# -------------------------
-# Extract compute nodes (non-routers only)
-# -------------------------
 compute_nodes = [n["id"] for n in platform_nodes if not n["is_router"]]
 compute_nodes = sorted(compute_nodes)
 
@@ -30,157 +27,233 @@ index_to_node_id = {idx: nid for nid, idx in node_id_to_index.items()}
 # Get Paths from KPathFinding
 min_path_cost = compute_min_path_costs("input/example_30T_fixed.json", k=2)
 
+node_id_to_index = {n: i for i, n in enumerate(compute_nodes)}
+index_to_node_id = {i: n for n, i in node_id_to_index.items()}
 
-# Build cost matrix aligned to solver node indices
-cost_matrix = [[0 for _ in range(num_nodes)] for _ in range(num_nodes)]
+n = len(jobs)
 
-for src_real in compute_nodes:
-    for dst_real in compute_nodes:
+# =========================================================
+# PATHS
+# =========================================================
+k_paths = compute_k_paths("example_30T_fixed.json", k=2)
 
-        src_idx = node_id_to_index[src_real]
-        dst_idx = node_id_to_index[dst_real]
-
-        # Take shortest path only
-        cost_matrix[src_idx][dst_idx] = min_path_cost[(src_real, dst_real)][0]
-
-
+# =========================================================
+# HYPERPERIOD (CASE B)
+# =========================================================
+periods = [msg.get("period", 10) for msg in messages]
 
 
-# ------ visualization purpose only
-# -------------------------
-# Build dependency map
-# -------------------------
-# job_id -> list of dependency job_ids
-dependencies = {job["id"]: [] for job in jobs}
+def lcm(a, b):
+    return abs(a*b) // math.gcd(a, b)
 
+
+H = reduce(lcm, periods)
+instances = {i: H // periods[i] for i in range(len(messages))}
+
+# =========================================================
+# APPLICATION DEADLINE
+# =========================================================
+successors = defaultdict(list)
 for msg in messages:
-    sender = msg["sender"]
-    receiver = msg["receiver"]
+    successors[msg["sender"]].append(msg["receiver"])
 
-    if receiver in dependencies:
-        dependencies[receiver].append(sender)
-
-all_nodes_set = set()
-
-for job in jobs:
-        for nid in job["can_run_on"]:
-            all_nodes_set.add(nid)
-
-all_nodes_list = sorted(list(all_nodes_set))
+memo = {}
 
 
+def critical_path(job_id):
+    if job_id in memo:
+        return memo[job_id]
+    wcet = jobs[job_id]["wcet_fullspeed"]
+    if not successors[job_id]:
+        memo[job_id] = wcet
+    else:
+        memo[job_id] = wcet + max(critical_path(r) for r in successors[job_id])
+    return memo[job_id]
 
-#-------------------------------------------
 
-# -------------------------
-# Create solver
-# -------------------------
+CP = max(critical_path(i) for i in range(n))
+WCET_SUM = sum(job["wcet_fullspeed"] for job in jobs)
+
+ALPHA = 0
+APP_DEADLINE = int(CP + ALPHA * (WCET_SUM - CP))
+
+print(f"Critical path:  {CP}")
+print(f"WCET sum:       {WCET_SUM}")
+print(f"App deadline:   {APP_DEADLINE}  (alpha={ALPHA})")
+
+# =========================================================
+# SOLVER
+# =========================================================
 solver = Solver()
 
 start = [Int(f"start_{i}") for i in range(n)]
 node = [Int(f"node_{i}") for i in range(n)]
 
-# -------------------------
-# Build Z3 CostArray to represent the cost matrix
-# -------------------------
-CostArray = Array('CostArray', IntSort(), ArraySort(IntSort(), IntSort()))
-
-cost_array_expr = CostArray
-
-for i in range(num_nodes):
-    row_array = K(IntSort(), 0)
-    for j in range(num_nodes):
-        row_array = Store(row_array, j, cost_matrix[i][j])
-    cost_array_expr = Store(cost_array_expr, i, row_array)
-
-solver.add(CostArray == cost_array_expr)
-
-# -------------------------
-# Job constraints
-# -------------------------
+# =========================================================
+# JOB CONSTRAINTS
+# =========================================================
 for i, job in enumerate(jobs):
 
     wcet = job["wcet_fullspeed"]
     # deadline = job["deadline"]
     allowed_real_nodes = job["can_run_on"]
 
-    allowed_indices = [
-        node_id_to_index[nid]
-        for nid in allowed_real_nodes
-        if nid in node_id_to_index
+    allowed = [
+        node_id_to_index[node_name]
+        for node_name in job["can_run_on"]
+        if node_name in node_id_to_index
     ]
 
     solver.add(start[i] >= 0)
     # solver.add(start[i] + wcet <= deadline)
 
-    solver.add(node[i] >= 0, node[i] < num_nodes)
-    solver.add(Or([node[i] == k for k in allowed_indices]))
+    solver.add(start[i] >= 0)
+    solver.add(start[i] + wcet <= APP_DEADLINE)
+    solver.add(Or([node[i] == a for a in allowed]))
 
-# -------------------------
-# Non-overlap constraints
-# -------------------------
+# =========================================================
+# CPU NON-OVERLAP
+# =========================================================
 for i in range(n):
     for j in range(i + 1, n):
 
-        wcet_i = jobs[i]["wcet_fullspeed"]
-        wcet_j = jobs[j]["wcet_fullspeed"]
+        wi = jobs[i]["wcet_fullspeed"]
+        wj = jobs[j]["wcet_fullspeed"]
 
-        same_node = node[i] == node[j]
+        solver.add(Implies(
+            node[i] == node[j],
+            Or(
+                start[i] + wi <= start[j],
+                start[j] + wj <= start[i]
+            )
+        ))
 
-        no_overlap = Or(
-            start[i] + wcet_i <= start[j],
-            start[j] + wcet_j <= start[i]
-        )
+# =========================================================
+# COMMUNICATION MODEL (FIXED ROUTING)
+# =========================================================
+LINK_TIME = 1
 
-        solver.add(Implies(same_node, no_overlap))
+offset = {}
+link_usage = {}
 
-# -------------------------
-# Dependency constraints (NO mapping used)
-# -------------------------
+for m, msg in enumerate(messages):
+
+    s = msg["sender"]
+    r = msg["receiver"]
+
+    
+    src = random.choice(jobs[s]["can_run_on"])
+    dst = random.choice(jobs[r]["can_run_on"])
+    print(src)
+    print(dst)
+    entry = k_paths.get((src, dst), None)
+    if not entry or not entry["paths"]:
+        continue
+
+    path = entry["paths"][0]
+
+    offset[m] = {}
+
+    for h in range(len(path) - 1):
+
+        link = (path[h], path[h + 1])
+
+        offset[m][link] = Int(f"o_{m}_{h}")
+
+        if link not in link_usage:
+            link_usage[link] = []
+
+        link_usage[link].append(m)
+
+# =========================================================
+# JOB → MESSAGE DEPENDENCY
+# =========================================================
 for msg in messages:
+    s = msg["sender"]
+    r = msg["receiver"]
 
-    sender = msg["sender"]
-    receiver = msg["receiver"]
-    sender_wcet = jobs[sender]["wcet_fullspeed"]
-    comm_cost = Select(
-    Select(CostArray, node[sender]),
-    node[receiver]
-)
+    solver.add(start[r] >= start[s] + jobs[s]["wcet_fullspeed"])
 
-    # Since job_id == index, we use directly
-    solver.add(
-        start[receiver] >= start[sender] + sender_wcet + comm_cost
-    )
+# =========================================================
+# CONTENTION (CASE A + B)
+# =========================================================
+for link, msgs_on_link in link_usage.items():
 
-# -------------------------
-# Solve
-# -------------------------
+    for i in range(len(msgs_on_link)):
+        for j in range(i + 1, len(msgs_on_link)):
+
+            m1 = msgs_on_link[i]
+            m2 = msgs_on_link[j]
+
+            o1 = offset[m1][link]
+            o2 = offset[m2][link]
+
+            L1 = LINK_TIME
+            L2 = LINK_TIME
+
+            # -------- CASE A --------
+            solver.add(
+                Or(
+                    o1 + L1 <= o2,
+                    o2 + L2 <= o1
+                )
+            )
+
+            # -------- CASE B --------
+            P1, P2 = periods[m1], periods[m2]
+            I1, I2 = instances[m1], instances[m2]
+
+            for a in range(I1):
+                for b in range(I2):
+
+                    solver.add(
+                        Or(
+                            (a * P1 + o1 + L1) <= (b * P2 + o2),
+                            (b * P2 + o2 + L2) <= (a * P1 + o1)
+                        )
+                    )
+
+# =========================================================
+# BUILD DEPENDENCIES (FOR OUTPUT)
+# =========================================================
+dependencies = {i: [] for i in range(n)}
+
+for msg in messages:
+    dependencies[msg["receiver"]].append(msg["sender"])
+
+# =========================================================
+# SOLVE
+# =========================================================
 if solver.check() == sat:
+
     model = solver.model()
 
-    output_schedule = {
-        "schedule": []
-    }
+    schedule = []
 
     for i in range(n):
 
-        assigned_index = model[node[i]].as_long()
-        assigned_real_node = index_to_node_id[assigned_index]
+        ni = model[node[i]].as_long()
+        st = model[start[i]].as_long()
+        wc = jobs[i]["wcet_fullspeed"]
 
-        start_time = model[start[i]].as_long()
-        wcet = jobs[i]["wcet_fullspeed"]
-        finish_time = start_time + wcet
-
-        output_schedule["schedule"].append({
+        schedule.append({
             "job_id": i,
-            "assigned_node":  f"p{assigned_real_node}",
-            "start_time": start_time,
-            "wcet_fullspeed": wcet,
-            "finish_time": finish_time,
+            "assigned_node": f"p{index_to_node_id[ni]}",
+            "start_time": st,
+            "wcet_fullspeed": wc,
+            "finish_time": st + wc,
             "dependencies": dependencies[i]
         })
 
-        output_schedule["nodes"] = [f"p{nid}" for nid in all_nodes_list]
+    output = {
+        "objective": "Scheduling the jobs",
+        "alpha": ALPHA,
+        "critical_path": CP,
+        "wcet_sum": WCET_SUM,
+        "app_deadline": APP_DEADLINE,
+        "schedule": schedule,
+        "nodes": [f"p{nid}" for nid in compute_nodes]
+    }
 
     # Extract base name from input file (e.g., "graph_0" from "input/graph_0.json")
     base_name = input_file.replace("input/", "").replace(".json", "")
@@ -189,7 +262,8 @@ if solver.check() == sat:
     with open(output_file, "w") as f:
         json.dump(output_schedule, f, indent=4)
 
-    print("Feasible schedule found. Output written to schedule_output.json")
+    print("✔ FEASIBLE SCHEDULE FOUND (CORRECT FORMAT)")
 
 else:
-    print("No feasible schedule found.")
+    print("❌ UNSAT - constraints too tight")
+    print(f"  Try increasing ALPHA above {ALPHA}")
