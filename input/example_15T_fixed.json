@@ -127,6 +127,8 @@
                 "id": 0,
                 "sender": 7,
                 "receiver": 3,
+                "start_time": 0,
+                "transmission_time": 0,
                 "size": 17,
                 "timetriggered": true,
                 "period": 10

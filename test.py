@@ -1,12 +1,12 @@
 import json
 from z3 import *
 
-from KPathFinding import compute_min_path_costs
+from util.KPathFinding import compute_min_path_costs
 
 # -------------------------
 # Load JSON
 # -------------------------
-with open("example_30T_fixed.json", "r") as f:
+with open("input/example_30T_fixed.json", "r") as f:
     data = json.load(f)
 
 jobs = data["application"]["jobs"]
@@ -27,7 +27,7 @@ node_id_to_index = {nid: idx for idx, nid in enumerate(compute_nodes)}
 index_to_node_id = {idx: nid for nid, idx in node_id_to_index.items()}
 
 # Get Paths from KPathFinding
-min_path_cost = compute_min_path_costs("example_30T_fixed.json", k=2)
+min_path_cost = compute_min_path_costs("input/example_30T_fixed.json", k=2)
 
 
 # Build cost matrix aligned to solver node indices
@@ -181,7 +181,7 @@ if solver.check() == sat:
 
         output_schedule["nodes"] = [f"p{nid}" for nid in all_nodes_list]
 
-    with open("schedule_output30T.json", "w") as f:
+    with open("output/schedule_output30T.json", "w") as f:
         json.dump(output_schedule, f, indent=4)
 
     print("Feasible schedule found. Output written to schedule_output.json")
