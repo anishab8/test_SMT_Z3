@@ -6,7 +6,8 @@ from util.KPathFinding import compute_min_path_costs
 # -------------------------
 # Load JSON
 # -------------------------
-with open("input/example_30T_fixed.json", "r") as f:
+input_file = "input/graph_0.json"
+with open(input_file, "r") as f:
     data = json.load(f)
 
 jobs = data["application"]["jobs"]
@@ -100,7 +101,7 @@ solver.add(CostArray == cost_array_expr)
 for i, job in enumerate(jobs):
 
     wcet = job["wcet_fullspeed"]
-    deadline = job["deadline"]
+    # deadline = job["deadline"]
     allowed_real_nodes = job["can_run_on"]
 
     allowed_indices = [
@@ -110,7 +111,7 @@ for i, job in enumerate(jobs):
     ]
 
     solver.add(start[i] >= 0)
-    solver.add(start[i] + wcet <= deadline)
+    # solver.add(start[i] + wcet <= deadline)
 
     solver.add(node[i] >= 0, node[i] < num_nodes)
     solver.add(Or([node[i] == k for k in allowed_indices]))
@@ -181,7 +182,11 @@ if solver.check() == sat:
 
         output_schedule["nodes"] = [f"p{nid}" for nid in all_nodes_list]
 
-    with open("output/schedule_output30T.json", "w") as f:
+    # Extract base name from input file (e.g., "graph_0" from "input/graph_0.json")
+    base_name = input_file.replace("input/", "").replace(".json", "")
+    output_file = f"output/{base_name}_output.json"
+    
+    with open(output_file, "w") as f:
         json.dump(output_schedule, f, indent=4)
 
     print("Feasible schedule found. Output written to schedule_output.json")
