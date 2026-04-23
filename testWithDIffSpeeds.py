@@ -6,7 +6,8 @@ from util.KPathFinding import compute_min_path_costs
 # -------------------------
 # Load JSON
 # -------------------------
-with open("input/example_30T_fixed_with_process_speeds.json", "r") as f:
+input_file = "input/example_30T_fixed_with_process_speeds.json"
+with open(input_file, "r") as f:
     data = json.load(f)
 
 jobs = data["application"]["jobs"]
@@ -215,7 +216,11 @@ if solver.check() == sat:
 
         output_schedule["nodes"] = all_nodes_list
 
-    with open("output/schedule_output30T_with_Speeds_V2.json", "w") as f:
+    # Extract base name from input file
+    base_name = input_file.replace("input/", "").replace(".json", "")
+    output_file = f"output/{base_name}_output.json"
+
+    with open(output_file, "w") as f:
         json.dump(output_schedule, f, indent=4)
 
     print("Feasible schedule found. Output written to schedule_output30T_with_Speeds_V2.json")

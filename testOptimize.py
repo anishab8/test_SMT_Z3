@@ -6,7 +6,8 @@ from util.KPathFinding import compute_min_path_costs
 # -------------------------
 # Load JSON
 # -------------------------
-with open("input/example_30T_fixed.json", "r") as f:
+input_file = "input/example_30T_fixed.json"
+with open(input_file, "r") as f:
     data = json.load(f)
 
 jobs = data["application"]["jobs"]
@@ -216,7 +217,9 @@ def solve_with_objective(objective_name):
 
         output_schedule["nodes"] = [f"p{nid}" for nid in all_nodes_list]
 
-        filename = f"output/schedule_{objective_name}_30T.json"
+        # Extract base name from input file
+        base_name = input_file.replace("input/", "").replace(".json", "")
+        filename = f"output/{base_name}_{objective_name}.json"
 
         with open(filename, "w") as f:
             json.dump(output_schedule, f, indent=4)
