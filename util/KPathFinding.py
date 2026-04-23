@@ -42,8 +42,11 @@ def compute_min_path_costs(json_file, k=2):
             costs = [path_cost(G, p) for p in paths]
             min_cost_dict[(src, dst)] = costs
 
+        
+    print(min_cost_dict)
+
     return min_cost_dict
-    #print(min_cost_dict)
+    
 
 
-# compute_min_path_costs("example_15T_fixed.json", k=2)
+# compute_min_path_costs("example_30T_fixed.json", k=3)
