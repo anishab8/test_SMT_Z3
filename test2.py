@@ -1,6 +1,6 @@
 import json
 from z3 import *
-from util.KPathFinding import compute_k_paths
+from util.KPathFinding2 import compute_k_paths
 
 # =============================================================================
 # LOAD INPUT DATA

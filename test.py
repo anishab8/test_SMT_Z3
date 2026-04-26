@@ -1,13 +1,15 @@
 import json
 from z3 import *
+import random
+import math
+from functools import reduce
+from collections import defaultdict
+from util.KPathFinding2 import compute_k_paths
 
-from util.KPathFinding import compute_min_path_costs
-
-# -------------------------
-# Load JSON
-# -------------------------
-input_file = "input/graph_0.json"
-with open(input_file, "r") as f:
+# =========================================================
+# LOAD DATA
+# =========================================================
+with open("input/example_30T_fixed.json", "r") as f:
     data = json.load(f)
 
 jobs = data["application"]["jobs"]
@@ -15,17 +17,6 @@ messages = data["application"]["messages"]
 platform_nodes = data["platform"]["nodes"]
 
 compute_nodes = [n["id"] for n in platform_nodes if not n["is_router"]]
-compute_nodes = sorted(compute_nodes)
-
-num_nodes = len(compute_nodes)
-n = len(jobs)
-
-# Map real node IDs <-> solver indices
-node_id_to_index = {nid: idx for idx, nid in enumerate(compute_nodes)}
-index_to_node_id = {idx: nid for nid, idx in node_id_to_index.items()}
-
-# Get Paths from KPathFinding
-min_path_cost = compute_min_path_costs("input/example_30T_fixed.json", k=2)
 
 node_id_to_index = {n: i for i, n in enumerate(compute_nodes)}
 index_to_node_id = {i: n for n, i in node_id_to_index.items()}
@@ -35,7 +26,7 @@ n = len(jobs)
 # =========================================================
 # PATHS
 # =========================================================
-k_paths = compute_k_paths("example_30T_fixed.json", k=2)
+k_paths = compute_k_paths("input/example_30T_fixed.json", k=2)
 
 # =========================================================
 # HYPERPERIOD (CASE B)
@@ -95,8 +86,6 @@ node = [Int(f"node_{i}") for i in range(n)]
 for i, job in enumerate(jobs):
 
     wcet = job["wcet_fullspeed"]
-    # deadline = job["deadline"]
-    allowed_real_nodes = job["can_run_on"]
 
     allowed = [
         node_id_to_index[node_name]
@@ -104,8 +93,7 @@ for i, job in enumerate(jobs):
         if node_name in node_id_to_index
     ]
 
-    solver.add(start[i] >= 0)
-    # solver.add(start[i] + wcet <= deadline)
+    assert allowed, f"Job {i} has no valid compute nodes in can_run_on"
 
     solver.add(start[i] >= 0)
     solver.add(start[i] + wcet <= APP_DEADLINE)
@@ -142,15 +130,17 @@ for m, msg in enumerate(messages):
     r = msg["receiver"]
 
     
-    src = random.choice(jobs[s]["can_run_on"])
-    dst = random.choice(jobs[r]["can_run_on"])
-    print(src)
-    print(dst)
+    src = node[s]
+    dst = node[r]
+   
     entry = k_paths.get((src, dst), None)
     if not entry or not entry["paths"]:
         continue
 
     path = entry["paths"][0]
+    print("print starts here")
+    print(src, dst )
+    print(path)
 
     offset[m] = {}
 
@@ -245,6 +235,8 @@ if solver.check() == sat:
             "dependencies": dependencies[i]
         })
 
+        
+
     output = {
         "objective": "Scheduling the jobs",
         "alpha": ALPHA,
@@ -255,12 +247,8 @@ if solver.check() == sat:
         "nodes": [f"p{nid}" for nid in compute_nodes]
     }
 
-    # Extract base name from input file (e.g., "graph_0" from "input/graph_0.json")
-    base_name = input_file.replace("input/", "").replace(".json", "")
-    output_file = f"output/{base_name}_output.json"
-    
-    with open(output_file, "w") as f:
-        json.dump(output_schedule, f, indent=4)
+    with open("schedule_output_paper_model.json", "w") as f:
+        json.dump(output, f, indent=4)
 
     print("✔ FEASIBLE SCHEDULE FOUND (CORRECT FORMAT)")
 
