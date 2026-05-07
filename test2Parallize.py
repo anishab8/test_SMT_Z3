@@ -545,10 +545,10 @@ if __name__ == "__main__":
 
     print(f"Search range: T = {l_min} to {t_max}")
 
-    NUM_WORKERS   = 12
+    NUM_WORKERS   = 16
     best_schedule = None
     optimal_T     = None
-    T_range       = list(range(95, t_max + 1))
+    T_range       = list(range(l_min, t_max + 1))
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=NUM_WORKERS) as executor:
         for batch_start in range(0, len(T_range), NUM_WORKERS):
