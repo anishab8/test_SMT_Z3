@@ -3,7 +3,7 @@ from z3 import *
 from util.KPathFinding2 import compute_k_paths
 
 # ── module-level setup (safe to run in workers too) ──
-input_file = "input/graph_0.json"
+input_file = "input/graph_1.json"
 with open(input_file, "r") as f:
     data = json.load(f)
 
