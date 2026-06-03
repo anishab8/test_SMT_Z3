@@ -1,201 +1,45 @@
 # SMT-Based Scheduler for Distributed Time-Sensitive Networks
 
-This project implements an **SMT-based scheduler** for distributed time-sensitive networks.  
-It takes a system model consisting of an application DAG and network topology, and computes a feasible schedule that satisfies timing constraints such as deadlines and dependencies.
+This code is an SMT-based scheduler designed for distributed time-sensitive networks.
 
-The scheduler supports both:
-- Automatically generated workloads (via TGFF)
-- Manually defined input JSON graphs
+## File Structure
 
----
+- `input/`: Contains the application and network topology input files (in `.json` format).
+- `misc/`: Contains older versions of schedulers and scripts that are not currently in use.
+- `output/`: The destination folder for scheduled output files.
+  - Naming convention: If `input_file` is `input/graph_3.json`, the output file will be `output/graph_3_smt_output.json`.
+- `prevSchedules/`: Contains schedules generated using older versions of the scheduler.
+- `util/`: Contains helper files imported by the main script:
+  - `compute_min.py`: Computes the minimum time of the longest chain in the DAG of the input file.
+  - `KPathFinding.py`: Used to find K paths between nodes (returns cost array).
+  - `KPathFinding2.py`: Used to find K paths between nodes (returns both cost and paths array). This is the version currently used in the main script.
+- `__pycache__/`: Compiled Python files.
+- `README.md`: This file.
+- `schedule_output_paper_model.json`: Pre-computed schedule output.
+- `test2 copy.py`: Older or alternative script version.
+- `test2Parallize.py`: The main scheduler script.
 
-# Project Structure
+## How to Run the Script
 
-test_code/
-│
-├── input/                  # Input workload files (JSON)
-│   ├── graph_0.json
-│   ├── graph_1.json
-│   └── ...
-│
-├── output/                 # Generated SMT scheduling outputs
-│   └── *_smt_output.json
-│
-├── misc/                   # Legacy / unused scripts and older scheduler versions
-│
-├── prevSchedules/         # Previously generated schedules using older schedulers
-│
-├── util/                  # Utility modules used by main scheduler
-│   ├── compute_min.py      # Computes minimum execution time / critical path
-│   ├── KPathFinding.py     # Computes K paths (cost-only version)
-│   ├── KPathFinding2.py    # Computes K paths with full path info (currently used)
-│
-├── __pycache__/
-│
-├── test2.py
-├── test2Parallize.py      # Main scheduler (recommended entry point)
-├── schedule_output_paper_model.json
-└── README.md
+### Option 1: Using Existing Input Files
+You can run the scheduler using existing files located in the `input/` folder (e.g., `graph_0.json`, `graph_1.json`).
+1. Run `test2Parallize.py`. By default, it runs on `graph_0.json`.
+2. To run on a different file, modify the input file name directly within the `test2Parallize.py` script.
+   - *Note: You may need to manually add a "deadline" property to the application JSON if missing.*
 
----
+### Option 2: Creating Your Own Input Files
+To generate new input files, follow these steps:
 
-# Input Format
+1. **Generate TGFF files**:
+   - Use TGFF on Ubuntu to generate files.
+   - Create a `.tgffopt` file (e.g., `simple.tgffopt`) and run it using the command:
+     `/tgff examples/simple` (do not include the extension).
+   - This generates a `simple.tgff` file in the examples folder.
 
-The `input/` folder contains JSON files describing:
+2. **Process TGFF files**:
+   - Use the `parsetgff.py` script, passing the generated `.tgff` file as an argument.
+   - This script extracts the data and saves the resulting JSON files into the `input/` folder.
+   - *Note: The python script uses a hardcoded platform model for all files, as TGFF only generates the application model. You must manually add the "deadline" field to the generated JSON files if required.*
 
-- Application DAG (tasks + dependencies)
-- Network topology
-- Communication edges between tasks
-
-Each file represents a full scheduling problem instance.
-
-Example:
-input/graph_3.json
-
----
-
-# Output Format
-
-For an input file:
-input/graph_3.json
-
-Output is generated as:
-output/graph_3_smt_output.json
-
-Logic:
-base_name = input_file.replace("input/", "").replace(".json", "")
-output_file = f"output/{base_name}_smt_output.json"
-
----
-
-# Utility Modules
-
-## compute_min.py
-Computes minimum execution time / critical path of DAG.
-
-## KPathFinding.py
-- Finds K paths between nodes
-- Returns cost-only results
-
-## KPathFinding2.py (currently used)
-- Improved version
-- Returns full path + cost
-- Used in scheduler routing logic
-
----
-
-# How to Run
-
-There are 2 ways to use this system.
-
----
-
-# Option 1: Use Existing Input Files
-
-Run:
-
-python test2Parallize.py
-
-By default, it runs on:
-input/graph_0.json
-
-To change input file:
-Edit inside test2Parallize.py:
-
-input_file = "input/graph_1.json"
-
-Notes:
-- Some inputs require a "deadline" field in the JSON
-
----
-
-# Option 2: Generate Your Own Input Files (TGFF Pipeline)
-
-We use TGFF (Task Graphs For Free) to generate application graphs.
-
----
-
-## Step 1: Create TGFF config
-
-Example:
-simple.tgffopt
-
-Refer to TGFF manual for syntax.
-
----
-
-## Step 2: Run TGFF (Ubuntu recommended)
-
-Important: do NOT pass extension.
-
-./tgff examples/simple
-
-This generates:
-examples/simple.tgff
-
----
-
-## Step 3: Convert TGFF → JSON
-
-Run:
-
-python parsetgff.py examples/simple.tgff
-
-This will:
-- Parse TGFF file
-- Convert into JSON format
-- Save output into input/ folder
-
----
-
-# Important Notes
-
-- TGFF generates ONLY the application model
-- Network model is currently hardcoded in parsetgff.py
-- Deadline field is manually added in post-processing
-
----
-
-# Workflow Overview
-
-TGFF (.tgffopt)
-    ↓
-tgff tool generates .tgff
-    ↓
-parsetgff.py converts to JSON
-    ↓
-input/*.json
-    ↓
-test2Parallize.py (SMT Scheduler)
-    ↓
-output/*.json
-
----
-
-# Key Features
-
-- SMT-based scheduling engine
-- DAG dependency handling
-- K-shortest path routing
-- Parallel scheduling support
-- TGFF-based synthetic workload generation
-
----
-
-# Future Improvements
-
-- Auto deadline generation
-- Dynamic network model parsing
-- Replace hardcoded platform model
-- Better TGFF integration pipeline
-- Visualization of schedules
-
----
-
-# Author Notes
-
-This project is designed for research in:
-- Real-time systems
-- Distributed scheduling
-- SMT optimization
-- Task graph scheduling
+3. **Run the Scheduler**:
+   - Once the files are in the `input/` folder, follow the steps provided in **Option 1**.
