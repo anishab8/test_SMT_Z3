@@ -3,7 +3,7 @@ from z3 import *
 from util.KPathFinding2 import compute_k_paths
 
 # ── module-level setup (safe to run in workers too) ──
-input_file = "input/graph_1.json"
+input_file = "input/graph_0.json"
 with open(input_file, "r") as f:
     data = json.load(f)
 
@@ -591,6 +591,14 @@ def try_T(T):
     # ============================================================
 
     job_info = {}
+    job_dependencies = {
+        job["id"]: sorted({
+            msg["sender"]
+            for msg in messages_data
+            if msg["receiver"] == job["id"]
+        })
+        for job in jobs_data
+    }
 
     for i, job in enumerate(jobs_data):
 
@@ -612,6 +620,7 @@ def try_T(T):
             "start_time": start_time,
             "finish_time": start_time + wcet,
             "wcet": wcet,
+            "dependencies": job_dependencies[job["id"]],
         }
 
     # ============================================================

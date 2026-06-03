@@ -2,7 +2,7 @@
     "application": {
         "jobs": [
             {
-                "id": 0,
+                "id":0, 
                 "wcet_fullspeed": 81,
                 "mcet": 0,
                 "processing_times": 7,
@@ -372,5 +372,6 @@
             "wcct": 0,
             "wccr": 1
         }
-    ]
+    ],
+    "deadline": 1000
 }

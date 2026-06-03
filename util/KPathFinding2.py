@@ -75,4 +75,4 @@ def compute_k_paths(json_file, k=1):
     return result
 
 
-# print(compute_k_paths("../input/graph_0.json", k=2))
+# print(compute_k_paths("../input/graph_0.json", k=1))

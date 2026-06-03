@@ -1,0 +1,362 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="7950" viewBox="0 0 1500 7950">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#263238"/>
+    </marker>
+    <style>
+      .bg { fill: #f7f9fb; }
+      .title { font: 700 34px Segoe UI, Arial, sans-serif; fill: #102027; }
+      .subtitle { font: 400 18px Segoe UI, Arial, sans-serif; fill: #455a64; }
+      .section { fill: #263238; }
+      .sectionText { font: 700 22px Segoe UI, Arial, sans-serif; fill: #ffffff; letter-spacing: .4px; }
+      .box { fill: #ffffff; stroke: #607d8b; stroke-width: 2; rx: 8; }
+      .boxBlue { fill: #e3f2fd; stroke: #1976d2; stroke-width: 2; rx: 8; }
+      .boxGreen { fill: #e8f5e9; stroke: #2e7d32; stroke-width: 2; rx: 8; }
+      .boxYellow { fill: #fff8e1; stroke: #f9a825; stroke-width: 2; rx: 8; }
+      .boxRed { fill: #ffebee; stroke: #c62828; stroke-width: 2; rx: 8; }
+      .boxPurple { fill: #f3e5f5; stroke: #7b1fa2; stroke-width: 2; rx: 8; }
+      .diamond { fill: #fffde7; stroke: #f57f17; stroke-width: 2; }
+      .text { font: 400 16px Segoe UI, Arial, sans-serif; fill: #263238; }
+      .small { font: 400 14px Segoe UI, Arial, sans-serif; fill: #37474f; }
+      .code { font: 400 14px Consolas, "Courier New", monospace; fill: #1b5e20; }
+      .heading { font: 700 18px Segoe UI, Arial, sans-serif; fill: #102027; }
+      .label { font: 700 14px Segoe UI, Arial, sans-serif; fill: #455a64; }
+      .arrow { stroke: #263238; stroke-width: 2.3; fill: none; marker-end: url(#arrow); }
+      .arrowThin { stroke: #546e7a; stroke-width: 1.7; fill: none; marker-end: url(#arrow); }
+      .note { fill: #eceff1; stroke: #90a4ae; stroke-width: 1.5; rx: 8; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1500" height="7950"/>
+
+  <text class="title" x="750" y="58" text-anchor="middle">Detailed Program Flowchart: test2Parallize.py</text>
+  <text class="subtitle" x="750" y="90" text-anchor="middle">SMT scheduling, job placement, message routing, link contention, node contention, binary-search makespan</text>
+
+  <!-- Legend -->
+  <rect class="note" x="70" y="120" width="1360" height="110"/>
+  <rect class="boxBlue" x="100" y="145" width="145" height="45"/><text class="small" x="260" y="173">Data setup / input preparation</text>
+  <rect class="boxGreen" x="465" y="145" width="145" height="45"/><text class="small" x="625" y="173">Function / normal processing</text>
+  <polygon class="diamond" points="850,145 930,168 850,191 770,168"/><text class="small" x="945" y="173">Decision / branch</text>
+  <rect class="boxYellow" x="1110" y="145" width="145" height="45"/><text class="small" x="1270" y="173">Loop / repeated work</text>
+  <text class="small" x="100" y="215">Arrows show primary control flow. Side callouts show inputs, outputs, variables, and SMT constraints added to Z3.</text>
+
+  <!-- Section 1 -->
+  <rect class="section" x="70" y="270" width="1360" height="44"/>
+  <text class="sectionText" x="750" y="299" text-anchor="middle">1. Module-Level Setup: Executed When Python Loads The File</text>
+
+  <rect class="boxBlue" x="360" y="345" width="780" height="145"/>
+  <text class="heading" x="750" y="374" text-anchor="middle">Read Input JSON</text>
+  <text class="code" x="395" y="407">input_file = "input/graph_1.json"</text>
+  <text class="code" x="395" y="432">data = json.load(open(input_file))</text>
+  <text class="small" x="395" y="462">Output: full application/platform object in memory</text>
+
+  <line class="arrow" x1="750" y1="490" x2="750" y2="540"/>
+
+  <rect class="boxBlue" x="280" y="540" width="940" height="190"/>
+  <text class="heading" x="750" y="570" text-anchor="middle">Extract Major Input Collections</text>
+  <text class="code" x="315" y="603">jobs_data = data["application"]["jobs"]</text>
+  <text class="code" x="315" y="628">messages_data = data["application"]["messages"]</text>
+  <text class="code" x="315" y="653">platform_nodes = data["platform"]["nodes"]</text>
+  <text class="code" x="315" y="678">app_deadline = data["application"]["deadline"]</text>
+  <text class="small" x="315" y="707">These are used globally by every function below.</text>
+
+  <line class="arrow" x1="750" y1="730" x2="750" y2="780"/>
+
+  <rect class="boxBlue" x="250" y="780" width="1000" height="220"/>
+  <text class="heading" x="750" y="810" text-anchor="middle">Classify Nodes And Build Index Maps</text>
+  <text class="code" x="285" y="843">endsystems = sorted(nodes where is_router == false)</text>
+  <text class="code" x="285" y="868">switches = sorted(nodes where is_router == true)</text>
+  <text class="code" x="285" y="893">all_nodes = endsystems + switches</text>
+  <text class="code" x="285" y="918">node_to_idx, idx_to_node, es_real_to_esidx</text>
+  <text class="small" x="285" y="948">Purpose: convert real node IDs into compact integer indices for arrays and Z3 variables.</text>
+  <text class="small" x="285" y="973">Output: node mappings and counts: num_endsystems, num_switches, num_nodes.</text>
+
+  <line class="arrow" x1="750" y1="1000" x2="750" y2="1050"/>
+
+  <rect class="boxBlue" x="260" y="1050" width="980" height="205"/>
+  <text class="heading" x="750" y="1080" text-anchor="middle">Build Topology Structures</text>
+  <text class="code" x="295" y="1113">adj = num_nodes x num_nodes False matrix</text>
+  <text class="code" x="295" y="1138">for each platform link: adj[i][j] = adj[j][i] = True</text>
+  <text class="code" x="295" y="1163">undirected_links.add((min(ni,nj), max(ni,nj)))</text>
+  <text class="small" x="295" y="1193">Purpose: represent physical connectivity and canonical undirected links.</text>
+  <text class="small" x="295" y="1218">Note: current optimized model uses edge_usage built from chosen paths, not adj directly during solving.</text>
+
+  <line class="arrow" x1="750" y1="1255" x2="750" y2="1305"/>
+
+  <rect class="boxBlue" x="270" y="1305" width="960" height="160"/>
+  <text class="heading" x="750" y="1335" text-anchor="middle">Precompute Candidate Communication Paths</text>
+  <text class="code" x="305" y="1368">path_data = compute_k_paths(input_file, k=1)</text>
+  <text class="small" x="305" y="1398">Method call to util/KPathFinding2.py.</text>
+  <text class="small" x="305" y="1423">Output shape: path_data[(source_node, dest_node)] = {"paths": [...], "costs": [...]}</text>
+  <text class="small" x="305" y="1448">Also compute num_jobs = len(jobs_data), num_msgs = len(messages_data).</text>
+
+  <!-- Section 2 -->
+  <rect class="section" x="70" y="1530" width="1360" height="44"/>
+  <text class="sectionText" x="750" y="1559" text-anchor="middle">2. Helper Function: compute_lmin(jobs_data, messages_data)</text>
+
+  <rect class="boxGreen" x="250" y="1610" width="1000" height="130"/>
+  <text class="heading" x="750" y="1640" text-anchor="middle">Inputs And Purpose</text>
+  <text class="small" x="285" y="1672">Inputs: jobs_data, messages_data</text>
+  <text class="small" x="285" y="1697">Purpose: estimate a lower bound for makespan by following job dependency chains.</text>
+  <text class="small" x="285" y="1722">Output: integer l_min used as binary-search lower bound.</text>
+
+  <line class="arrow" x1="750" y1="1740" x2="750" y2="1790"/>
+
+  <rect class="boxGreen" x="270" y="1790" width="960" height="170"/>
+  <text class="heading" x="750" y="1820" text-anchor="middle">Build Dependency Lookup Tables</text>
+  <text class="code" x="305" y="1853">job_wcet[job_id] = wcet_fullspeed</text>
+  <text class="code" x="305" y="1878">msg_receiver[msg_id] = receiver_job</text>
+  <text class="code" x="305" y="1903">msgs_sent_by[sender_job].append(msg_id)</text>
+  <text class="small" x="305" y="1933">These support recursive traversal from each root job to downstream jobs.</text>
+
+  <line class="arrow" x1="750" y1="1960" x2="750" y2="2010"/>
+
+  <rect class="boxYellow" x="220" y="2010" width="1060" height="220"/>
+  <text class="heading" x="750" y="2040" text-anchor="middle">Recursive Inner Function: chain_min_time(job_id)</text>
+  <text class="small" x="255" y="2072">Decision: if job_id is in memo, return cached result.</text>
+  <text class="small" x="255" y="2097">Decision: if no outgoing messages, result = this job's WCET.</text>
+  <text class="small" x="255" y="2122">Else: recursively compute each receiver chain and take the maximum downstream chain.</text>
+  <text class="code" x="255" y="2147">result = wcet(job_id) + 1 + max(chain_min_time(receiver))</text>
+  <text class="small" x="255" y="2177">The +1 approximates one timeframe of communication between dependent jobs.</text>
+  <text class="small" x="255" y="2202">Output: minimum chain time from this job through its dependency descendants.</text>
+
+  <line class="arrow" x1="750" y1="2230" x2="750" y2="2280"/>
+
+  <rect class="boxGreen" x="270" y="2280" width="960" height="155"/>
+  <text class="heading" x="750" y="2310" text-anchor="middle">Find Roots And Return Lower Bound</text>
+  <text class="code" x="305" y="2343">root_jobs = jobs that are not receivers of any message</text>
+  <text class="small" x="305" y="2373">If no roots exist, fall back to all jobs.</text>
+  <text class="code" x="305" y="2398">return max(max(chain_min_time(root)), max(job_wcet))</text>
+
+  <!-- Section 3 -->
+  <rect class="section" x="70" y="2500" width="1360" height="44"/>
+  <text class="sectionText" x="750" y="2529" text-anchor="middle">3. Helper Function: build_routing_options(sender_job, receiver_job)</text>
+
+  <rect class="boxGreen" x="240" y="2580" width="1020" height="145"/>
+  <text class="heading" x="750" y="2610" text-anchor="middle">Inputs, Output, And Goal</text>
+  <text class="small" x="275" y="2642">Inputs: sender_job id, receiver_job id</text>
+  <text class="small" x="275" y="2667">Uses globals: jobs_data, es_real_to_esidx, path_data, node_to_idx</text>
+  <text class="small" x="275" y="2692">Output: list of route tuples: (route_id, source_es_index, dest_es_index, path_nodes_as_indices)</text>
+
+  <line class="arrow" x1="750" y1="2725" x2="750" y2="2775"/>
+
+  <rect class="boxYellow" x="180" y="2775" width="1140" height="275"/>
+  <text class="heading" x="750" y="2805" text-anchor="middle">Route Enumeration Loops</text>
+  <text class="code" x="215" y="2838">sender_allowed = sender job can_run_on nodes that are end systems</text>
+  <text class="code" x="215" y="2863">receiver_allowed = receiver job can_run_on nodes that are end systems</text>
+  <text class="small" x="215" y="2893">Loop 1: for each src_real in sender_allowed</text>
+  <text class="small" x="215" y="2918">Loop 2: for each dst_real in receiver_allowed</text>
+  <text class="small" x="215" y="2943">Decision: if (src_real, dst_real) not in path_data, skip.</text>
+  <text class="small" x="215" y="2968">Loop 3: for each precomputed path for that source/destination pair.</text>
+  <text class="small" x="215" y="2993">Decision: if path is empty, skip.</text>
+  <text class="code" x="215" y="3018">append((option_counter, src_es_idx, dst_es_idx, path_nodes))</text>
+
+  <line class="arrow" x1="750" y1="3050" x2="750" y2="3100"/>
+
+  <rect class="boxGreen" x="360" y="3100" width="780" height="95"/>
+  <text class="heading" x="750" y="3130" text-anchor="middle">Return routing_options</text>
+  <text class="small" x="395" y="3162">These are already pruned to legal sender/receiver job placements.</text>
+
+  <!-- Section 4 -->
+  <rect class="section" x="70" y="3260" width="1360" height="44"/>
+  <text class="sectionText" x="750" y="3289" text-anchor="middle">4. Core SMT Function: build_and_solve(T)</text>
+
+  <rect class="boxPurple" x="260" y="3340" width="980" height="120"/>
+  <text class="heading" x="750" y="3370" text-anchor="middle">Create Z3 Solver</text>
+  <text class="code" x="295" y="3403">solver = Solver()</text>
+  <text class="code" x="295" y="3428">solver.set("timeout", 300000)  # 5 minutes</text>
+
+  <line class="arrow" x1="750" y1="3460" x2="750" y2="3510"/>
+
+  <rect class="boxPurple" x="210" y="3510" width="1080" height="185"/>
+  <text class="heading" x="750" y="3540" text-anchor="middle">Create Z3 Decision Variables</text>
+  <text class="code" x="245" y="3573">job_assigned_es[i] = Int("job_i_endsystem")</text>
+  <text class="code" x="245" y="3598">job_start_time[i] = Int("job_i_start")</text>
+  <text class="code" x="245" y="3623">msg_inject_time[mid] = Int("msg_mid_inject")</text>
+  <text class="code" x="245" y="3648">msg_arrival_time[mid] = Int("msg_mid_arrival")</text>
+  <text class="code" x="245" y="3673">msg_path_choice[mid] = Int("msg_mid_path_choice")</text>
+
+  <line class="arrow" x1="750" y1="3695" x2="750" y2="3745"/>
+
+  <rect class="boxYellow" x="160" y="3745" width="1180" height="210"/>
+  <text class="heading" x="750" y="3775" text-anchor="middle">Loop Over Jobs: Domain And Deadline Constraints</text>
+  <text class="small" x="195" y="3807">For each job i:</text>
+  <text class="code" x="225" y="3832">allowed = endsystem indices from job["can_run_on"]</text>
+  <text class="code" x="225" y="3857">solver.add(Or(job_assigned_es[i] == x for x in allowed))</text>
+  <text class="code" x="225" y="3882">solver.add(job_start_time[i] &gt;= 0)</text>
+  <text class="code" x="225" y="3907">solver.add(job_start_time[i] + wcet &lt;= T)</text>
+  <text class="small" x="195" y="3937">Purpose: every job must be placed on an allowed end system and finish within candidate makespan T.</text>
+
+  <line class="arrow" x1="750" y1="3955" x2="750" y2="4005"/>
+
+  <rect class="boxYellow" x="145" y="4005" width="1210" height="185"/>
+  <text class="heading" x="750" y="4035" text-anchor="middle">Nested Loop Over Job Pairs: CPU Mutual Exclusion</text>
+  <text class="small" x="180" y="4067">For each unordered pair (i, j):</text>
+  <text class="code" x="210" y="4092">Implies(job_assigned_es[i] == job_assigned_es[j],</text>
+  <text class="code" x="265" y="4117">Or(job_i_finish &lt;= job_j_start, job_j_finish &lt;= job_i_start))</text>
+  <text class="small" x="180" y="4147">Purpose: two jobs on the same processor cannot overlap in time.</text>
+
+  <line class="arrow" x1="750" y1="4190" x2="750" y2="4240"/>
+
+  <rect class="boxPurple" x="280" y="4240" width="940" height="105"/>
+  <text class="heading" x="750" y="4270" text-anchor="middle">Initialize Usage Registries</text>
+  <text class="code" x="315" y="4303">edge_usage = {}  # edge -&gt; selected route hop times</text>
+  <text class="code" x="315" y="4328">node_usage = {}  # node -&gt; selected route occupancy intervals</text>
+
+  <line class="arrow" x1="750" y1="4345" x2="750" y2="4395"/>
+
+  <rect class="boxYellow" x="100" y="4395" width="1300" height="600"/>
+  <text class="heading" x="750" y="4425" text-anchor="middle">Main Message Routing Loop: for msg in messages_data</text>
+  <text class="small" x="135" y="4457">Extract: mid, sender_job, receiver_job, sender_wcet.</text>
+  <text class="code" x="135" y="4482">routing_options = build_routing_options(sender_job, receiver_job)</text>
+  <text class="small" x="135" y="4512">Decision: if no routing options exist, return (False, None).</text>
+  <text class="code" x="135" y="4537">solver.add(Or(msg_path_choice[mid] == rid for each option))</text>
+  <text class="code" x="135" y="4562">solver.add(msg_inject_time[mid] &gt;= job_start_time[sender_job] + sender_wcet)</text>
+  <text class="code" x="135" y="4587">solver.add(0 &lt;= msg_inject_time[mid] &lt; T)</text>
+  <text class="code" x="135" y="4612">solver.add(0 &lt;= msg_arrival_time[mid] &lt; T)</text>
+  <text class="small" x="135" y="4642">Then build one routing case for each candidate route:</text>
+  <text class="code" x="165" y="4667">conds: sender assigned to route source; receiver assigned to route dest; route id selected</text>
+  <text class="code" x="165" y="4692">create local hop variables: msg_mid_hop_rid_h</text>
+  <text class="code" x="165" y="4717">if num_hops &gt; 0: first hop time == inject time</text>
+  <text class="code" x="165" y="4742">for each adjacent hop: next_hop &gt;= previous_hop + 1</text>
+  <text class="code" x="165" y="4767">arrival = last_hop + 1; for zero hops, arrival = inject</text>
+  <text class="code" x="165" y="4792">receiver job start &gt;= message arrival time</text>
+  <text class="small" x="135" y="4822">Register every route's possible edge and node usage, but constraints only activate when that route is chosen.</text>
+  <text class="code" x="165" y="4847">edge_usage[edge].append((mid, rid, hop_time))</text>
+  <text class="code" x="165" y="4872">node_usage[node].append((mid, rid, interval_start, interval_end))</text>
+  <text class="code" x="135" y="4907">solver.add(Or(routing_cases))</text>
+  <text class="small" x="135" y="4937">Purpose: exactly one internally consistent route case must explain each message.</text>
+
+  <line class="arrow" x1="750" y1="4995" x2="750" y2="5045"/>
+
+  <rect class="boxYellow" x="120" y="5045" width="1260" height="245"/>
+  <text class="heading" x="750" y="5075" text-anchor="middle">Wire Contention Constraints</text>
+  <text class="small" x="155" y="5107">Loop: for each physical edge key and its candidate users.</text>
+  <text class="small" x="155" y="5132">Nested loop: compare each pair of users on that edge.</text>
+  <text class="small" x="155" y="5157">Decision: if both users belong to the same message, skip.</text>
+  <text class="code" x="155" y="5182">Implies(And(msg_i chooses route_i, msg_j chooses route_j), hop_time_i != hop_time_j)</text>
+  <text class="small" x="155" y="5212">Meaning: two different messages cannot traverse the same undirected link during the same timeframe.</text>
+  <text class="small" x="155" y="5237">Optimization: avoids explicit per-timeframe Boolean variables for every edge and every T.</text>
+
+  <line class="arrow" x1="750" y1="5290" x2="750" y2="5340"/>
+
+  <rect class="boxYellow" x="120" y="5340" width="1260" height="245"/>
+  <text class="heading" x="750" y="5370" text-anchor="middle">Node Contention Constraints</text>
+  <text class="small" x="155" y="5402">Loop: for each node and its candidate occupancy intervals.</text>
+  <text class="small" x="155" y="5427">Nested loop: compare each pair of candidate message intervals on that node.</text>
+  <text class="small" x="155" y="5452">Decision: if both intervals belong to the same message, skip.</text>
+  <text class="code" x="155" y="5477">Implies(routes selected, Or(end_i &lt; start_j, end_j &lt; start_i))</text>
+  <text class="small" x="155" y="5507">Meaning: only one message may occupy a node at a given timeframe.</text>
+  <text class="small" x="155" y="5532">Intervals cover source at injection, intermediate waiting, and destination at arrival.</text>
+
+  <line class="arrow" x1="750" y1="5585" x2="750" y2="5635"/>
+
+  <polygon class="diamond" points="750,5635 920,5715 750,5795 580,5715"/>
+  <text class="heading" x="750" y="5705" text-anchor="middle">solver.check()</text>
+  <text class="small" x="750" y="5730" text-anchor="middle">SAT?</text>
+
+  <line class="arrowThin" x1="580" y1="5715" x2="320" y2="5715"/>
+  <text class="label" x="445" y="5695" text-anchor="middle">No: unsat / unknown</text>
+  <rect class="boxRed" x="100" y="5665" width="220" height="100"/>
+  <text class="heading" x="210" y="5700" text-anchor="middle">Return</text>
+  <text class="code" x="145" y="5730">False, None</text>
+
+  <line class="arrowThin" x1="920" y1="5715" x2="1180" y2="5715"/>
+  <text class="label" x="1055" y="5695" text-anchor="middle">Yes: sat</text>
+  <rect class="boxGreen" x="1180" y="5665" width="220" height="100"/>
+  <text class="heading" x="1290" y="5700" text-anchor="middle">Return</text>
+  <text class="code" x="1217" y="5730">True, model</text>
+
+  <!-- Section 5 -->
+  <rect class="section" x="70" y="5860" width="1360" height="44"/>
+  <text class="sectionText" x="750" y="5889" text-anchor="middle">5. Extraction Function: try_T(T)</text>
+
+  <rect class="boxGreen" x="220" y="5940" width="1060" height="135"/>
+  <text class="heading" x="750" y="5970" text-anchor="middle">Call Solver For One Candidate Makespan</text>
+  <text class="code" x="255" y="6003">feasible, model = build_and_solve(T)</text>
+  <text class="small" x="255" y="6033">Decision: if not feasible, return (T, False, None).</text>
+  <text class="small" x="255" y="6058">Otherwise, convert Z3 model values into plain Python dictionaries for JSON output.</text>
+
+  <line class="arrow" x1="750" y1="6075" x2="750" y2="6125"/>
+
+  <rect class="boxYellow" x="105" y="6125" width="1290" height="205"/>
+  <text class="heading" x="750" y="6155" text-anchor="middle">Extract Job Schedule</text>
+  <text class="small" x="140" y="6187">Build job_dependencies: all message senders whose message receiver equals each job id.</text>
+  <text class="small" x="140" y="6212">Loop over each job:</text>
+  <text class="code" x="170" y="6237">assigned_node = endsystems[model[job_i_endsystem]]</text>
+  <text class="code" x="170" y="6262">start_time = model[job_i_start]; finish_time = start_time + wcet</text>
+  <text class="code" x="170" y="6287">job_info[job_id] = {job_id, assigned_node, start_time, finish_time, wcet, dependencies}</text>
+
+  <line class="arrow" x1="750" y1="6330" x2="750" y2="6380"/>
+
+  <rect class="boxYellow" x="105" y="6380" width="1290" height="330"/>
+  <text class="heading" x="750" y="6410" text-anchor="middle">Extract Message Schedule</text>
+  <text class="small" x="140" y="6442">Loop over each message:</text>
+  <text class="code" x="170" y="6467">sender_node, receiver_node from job_info</text>
+  <text class="code" x="170" y="6492">inject_tf = model[msg_mid_inject]; arrival_tf = model[msg_mid_arrival]</text>
+  <text class="code" x="170" y="6517">chosen_rid = model[msg_mid_path_choice]</text>
+  <text class="code" x="170" y="6542">routing_options = build_routing_options(sender_job, receiver_job)</text>
+  <text class="small" x="140" y="6572">Loop: find chosen route by matching rid == chosen_rid.</text>
+  <text class="small" x="140" y="6597">Loop: evaluate msg_mid_hop_chosenRid_h until no more hop variable exists.</text>
+  <text class="small" x="140" y="6622">Build path_timeline: source at inject_tf, then each next node at hop_tf + 1.</text>
+  <text class="code" x="170" y="6647">msg_details.append({msg_id, sender_job, receiver_job, nodes, inject, arrival, path_choice, hop_times})</text>
+  <text class="small" x="140" y="6677">Output field hop_times is a list of {"node": real_node_id, "timeframe": reached_time} entries.</text>
+
+  <line class="arrow" x1="750" y1="6710" x2="750" y2="6760"/>
+
+  <rect class="boxGreen" x="260" y="6760" width="980" height="115"/>
+  <text class="heading" x="750" y="6790" text-anchor="middle">Return Plain Schedule</text>
+  <text class="code" x="295" y="6823">schedule = {"jobs": list(job_info.values()), "messages": msg_details}</text>
+  <text class="code" x="295" y="6848">return T, True, schedule</text>
+
+  <!-- Section 6 -->
+  <rect class="section" x="70" y="6935" width="1360" height="44"/>
+  <text class="sectionText" x="750" y="6964" text-anchor="middle">6. Main Program: Binary Search For Smallest Feasible T</text>
+
+  <rect class="boxGreen" x="225" y="7015" width="1050" height="145"/>
+  <text class="heading" x="750" y="7045" text-anchor="middle">Initialize Search Bounds</text>
+  <text class="code" x="260" y="7078">l_min = compute_lmin(jobs_data, messages_data)</text>
+  <text class="code" x="260" y="7103">t_max = app_deadline</text>
+  <text class="code" x="260" y="7128">SEARCH_LOWER_BOUND = l_min</text>
+  <text class="code" x="260" y="7153">low = max(l_min, SEARCH_LOWER_BOUND); high = t_max</text>
+
+  <line class="arrow" x1="750" y1="7160" x2="750" y2="7210"/>
+
+  <rect class="boxYellow" x="120" y="7210" width="1260" height="250"/>
+  <text class="heading" x="750" y="7240" text-anchor="middle">Binary Search Loop: while low &lt;= high</text>
+  <text class="code" x="155" y="7273">mid = (low + high) // 2</text>
+  <text class="code" x="155" y="7298">T_val, feasible, schedule = try_T(mid)</text>
+  <text class="small" x="155" y="7328">Decision: if feasible is True:</text>
+  <text class="code" x="185" y="7353">optimal_T = T_val; best_schedule = schedule; high = mid - 1</text>
+  <text class="small" x="155" y="7383">Decision: else unsat/unknown:</text>
+  <text class="code" x="185" y="7408">low = mid + 1</text>
+  <text class="small" x="155" y="7438">Meaning: feasibility is assumed monotonic. If T works, try smaller; if T fails, try larger.</text>
+
+  <line class="arrow" x1="750" y1="7460" x2="750" y2="7510"/>
+
+  <polygon class="diamond" points="750,7510 910,7580 750,7650 590,7580"/>
+  <text class="heading" x="750" y="7570" text-anchor="middle">best_schedule?</text>
+  <text class="small" x="750" y="7595" text-anchor="middle">Found feasible T?</text>
+
+  <rect class="boxGreen" x="975" y="7520" width="410" height="180"/>
+  <text class="heading" x="1180" y="7550" text-anchor="middle">Yes: Write Output JSON</text>
+  <text class="code" x="1005" y="7583">output = {"optimal_makespan": optimal_T,</text>
+  <text class="code" x="1065" y="7608">"schedule": best_schedule}</text>
+  <text class="code" x="1005" y="7633">output_file = output/{base}_smt_output.json</text>
+  <text class="small" x="1005" y="7663">Also pretty-prints job and message summaries.</text>
+
+  <rect class="boxRed" x="115" y="7520" width="410" height="120"/>
+  <text class="heading" x="320" y="7550" text-anchor="middle">No: Report Failure</text>
+  <text class="small" x="150" y="7583">Print: No feasible schedule exists</text>
+  <text class="small" x="150" y="7608">within the application deadline.</text>
+
+  <line class="arrowThin" x1="910" y1="7580" x2="975" y2="7580"/>
+  <line class="arrowThin" x1="590" y1="7580" x2="525" y2="7580"/>
+
+  <rect class="note" x="90" y="7735" width="1320" height="145"/>
+  <text class="heading" x="750" y="7770" text-anchor="middle">Important Modeling Notes From The Current File</text>
+  <text class="small" x="125" y="7803">1. The solver minimizes makespan by binary search, but does not minimize individual message latency inside a feasible T.</text>
+  <text class="small" x="125" y="7828">2. Wire contention is pairwise on selected route hop times, not expanded across every timeframe.</text>
+  <text class="small" x="125" y="7853">3. Node contention is interval based: same-node intervals from different messages must not overlap.</text>
+  <text class="small" x="125" y="7878">4. The diagram reflects the code currently present in test2Parallize.py when this SVG was generated.</text>
+</svg>

@@ -1,0 +1,318 @@
+{
+    "objective": "Scheduling the jobs",
+    "alpha": 0,
+    "critical_path": 366,
+    "wcet_sum": 1580,
+    "app_deadline": 366,
+    "schedule": [
+        {
+            "job_id": 0,
+            "assigned_node": "p7",
+            "start_time": 209,
+            "wcet_fullspeed": 81,
+            "finish_time": 290,
+            "dependencies": [
+                19
+            ]
+        },
+        {
+            "job_id": 1,
+            "assigned_node": "p2",
+            "start_time": 279,
+            "wcet_fullspeed": 87,
+            "finish_time": 366,
+            "dependencies": [
+                8,
+                19
+            ]
+        },
+        {
+            "job_id": 2,
+            "assigned_node": "p16",
+            "start_time": 288,
+            "wcet_fullspeed": 78,
+            "finish_time": 366,
+            "dependencies": [
+                10
+            ]
+        },
+        {
+            "job_id": 3,
+            "assigned_node": "p7",
+            "start_time": 327,
+            "wcet_fullspeed": 39,
+            "finish_time": 366,
+            "dependencies": [
+                7,
+                12
+            ]
+        },
+        {
+            "job_id": 4,
+            "assigned_node": "p3",
+            "start_time": 307,
+            "wcet_fullspeed": 33,
+            "finish_time": 340,
+            "dependencies": [
+                16,
+                21
+            ]
+        },
+        {
+            "job_id": 5,
+            "assigned_node": "p17",
+            "start_time": 288,
+            "wcet_fullspeed": 38,
+            "finish_time": 326,
+            "dependencies": [
+                10
+            ]
+        },
+        {
+            "job_id": 6,
+            "assigned_node": "p15",
+            "start_time": 282,
+            "wcet_fullspeed": 84,
+            "finish_time": 366,
+            "dependencies": [
+                18,
+                23
+            ]
+        },
+        {
+            "job_id": 7,
+            "assigned_node": "p7",
+            "start_time": 290,
+            "wcet_fullspeed": 37,
+            "finish_time": 327,
+            "dependencies": [
+                13
+            ]
+        },
+        {
+            "job_id": 8,
+            "assigned_node": "p2",
+            "start_time": 207,
+            "wcet_fullspeed": 72,
+            "finish_time": 279,
+            "dependencies": [
+                14,
+                19
+            ]
+        },
+        {
+            "job_id": 9,
+            "assigned_node": "p3",
+            "start_time": 216,
+            "wcet_fullspeed": 91,
+            "finish_time": 307,
+            "dependencies": [
+                13,
+                22
+            ]
+        },
+        {
+            "job_id": 10,
+            "assigned_node": "p1",
+            "start_time": 226,
+            "wcet_fullspeed": 62,
+            "finish_time": 288,
+            "dependencies": [
+                13
+            ]
+        },
+        {
+            "job_id": 11,
+            "assigned_node": "p11",
+            "start_time": 274,
+            "wcet_fullspeed": 6,
+            "finish_time": 280,
+            "dependencies": [
+                17
+            ]
+        },
+        {
+            "job_id": 12,
+            "assigned_node": "p1",
+            "start_time": 288,
+            "wcet_fullspeed": 34,
+            "finish_time": 322,
+            "dependencies": [
+                15,
+                17
+            ]
+        },
+        {
+            "job_id": 13,
+            "assigned_node": "p3",
+            "start_time": 158,
+            "wcet_fullspeed": 58,
+            "finish_time": 216,
+            "dependencies": [
+                22,
+                27
+            ]
+        },
+        {
+            "job_id": 14,
+            "assigned_node": "p1",
+            "start_time": 0,
+            "wcet_fullspeed": 28,
+            "finish_time": 28,
+            "dependencies": []
+        },
+        {
+            "job_id": 15,
+            "assigned_node": "p11",
+            "start_time": 244,
+            "wcet_fullspeed": 30,
+            "finish_time": 274,
+            "dependencies": [
+                17,
+                29
+            ]
+        },
+        {
+            "job_id": 16,
+            "assigned_node": "p16",
+            "start_time": 28,
+            "wcet_fullspeed": 89,
+            "finish_time": 117,
+            "dependencies": [
+                14
+            ]
+        },
+        {
+            "job_id": 17,
+            "assigned_node": "p17",
+            "start_time": 226,
+            "wcet_fullspeed": 18,
+            "finish_time": 244,
+            "dependencies": [
+                24,
+                29
+            ]
+        },
+        {
+            "job_id": 18,
+            "assigned_node": "p15",
+            "start_time": 0,
+            "wcet_fullspeed": 74,
+            "finish_time": 74,
+            "dependencies": []
+        },
+        {
+            "job_id": 19,
+            "assigned_node": "p7",
+            "start_time": 138,
+            "wcet_fullspeed": 69,
+            "finish_time": 207,
+            "dependencies": [
+                25
+            ]
+        },
+        {
+            "job_id": 20,
+            "assigned_node": "p11",
+            "start_time": 280,
+            "wcet_fullspeed": 5,
+            "finish_time": 285,
+            "dependencies": [
+                25
+            ]
+        },
+        {
+            "job_id": 21,
+            "assigned_node": "p11",
+            "start_time": 206,
+            "wcet_fullspeed": 38,
+            "finish_time": 244,
+            "dependencies": [
+                18
+            ]
+        },
+        {
+            "job_id": 22,
+            "assigned_node": "p2",
+            "start_time": 76,
+            "wcet_fullspeed": 82,
+            "finish_time": 158,
+            "dependencies": [
+                26,
+                29
+            ]
+        },
+        {
+            "job_id": 23,
+            "assigned_node": "p2",
+            "start_time": 0,
+            "wcet_fullspeed": 48,
+            "finish_time": 48,
+            "dependencies": []
+        },
+        {
+            "job_id": 24,
+            "assigned_node": "p1",
+            "start_time": 151,
+            "wcet_fullspeed": 75,
+            "finish_time": 226,
+            "dependencies": [
+                27
+            ]
+        },
+        {
+            "job_id": 25,
+            "assigned_node": "p1",
+            "start_time": 48,
+            "wcet_fullspeed": 90,
+            "finish_time": 138,
+            "dependencies": [
+                23
+            ]
+        },
+        {
+            "job_id": 26,
+            "assigned_node": "p7",
+            "start_time": 0,
+            "wcet_fullspeed": 21,
+            "finish_time": 21,
+            "dependencies": []
+        },
+        {
+            "job_id": 27,
+            "assigned_node": "p1",
+            "start_time": 146,
+            "wcet_fullspeed": 5,
+            "finish_time": 151,
+            "dependencies": [
+                28
+            ]
+        },
+        {
+            "job_id": 28,
+            "assigned_node": "p3",
+            "start_time": 114,
+            "wcet_fullspeed": 32,
+            "finish_time": 146,
+            "dependencies": []
+        },
+        {
+            "job_id": 29,
+            "assigned_node": "p3",
+            "start_time": 0,
+            "wcet_fullspeed": 76,
+            "finish_time": 76,
+            "dependencies": []
+        }
+    ],
+    "nodes": [
+        "p1",
+        "p2",
+        "p3",
+        "p7",
+        "p11",
+        "p15",
+        "p16",
+        "p17"
+    ]
+}

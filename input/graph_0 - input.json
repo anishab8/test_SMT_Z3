@@ -3,7 +3,7 @@
         "jobs": [
             {
                 "id": 0,
-                "wcet_fullspeed": 45,
+                "wcet_fullspeed": 3,
                 "mcet": 0,
                 "processing_times": 4,
                 "can_run_on": [
@@ -14,7 +14,7 @@
             },
             {
                 "id": 1,
-                "wcet_fullspeed": 23,
+                "wcet_fullspeed": 3,
                 "mcet": 0,
                 "processing_times": 9,
                 "can_run_on": [
@@ -23,7 +23,7 @@
             },
             {
                 "id": 2,
-                "wcet_fullspeed": 14,
+                "wcet_fullspeed": 2,
                 "mcet": 0,
                 "processing_times": 1,
                 "can_run_on": [
@@ -32,7 +32,7 @@
             },
             {
                 "id": 3,
-                "wcet_fullspeed": 39,
+                "wcet_fullspeed": 4,
                 "mcet": 0,
                 "processing_times": 9,
                 "can_run_on": [
@@ -41,7 +41,7 @@
             },
             {
                 "id": 4,
-                "wcet_fullspeed": 93,
+                "wcet_fullspeed": 3,
                 "mcet": 0,
                 "processing_times": 9,
                 "can_run_on": [
@@ -52,7 +52,7 @@
             },
             {
                 "id": 5,
-                "wcet_fullspeed": 85,
+                "wcet_fullspeed": 3,
                 "mcet": 0,
                 "processing_times": 5,
                 "can_run_on": [
@@ -62,7 +62,7 @@
             },
             {
                 "id": 6,
-                "wcet_fullspeed": 99,
+                "wcet_fullspeed": 5,
                 "mcet": 0,
                 "processing_times": 7,
                 "can_run_on": [
@@ -71,7 +71,7 @@
             },
             {
                 "id": 7,
-                "wcet_fullspeed": 37,
+                "wcet_fullspeed": 1,
                 "mcet": 0,
                 "processing_times": 6,
                 "can_run_on": [
@@ -81,7 +81,7 @@
             },
             {
                 "id": 8,
-                "wcet_fullspeed": 58,
+                "wcet_fullspeed": 2,
                 "mcet": 0,
                 "processing_times": 2,
                 "can_run_on": [
@@ -90,7 +90,7 @@
             },
             {
                 "id": 9,
-                "wcet_fullspeed": 43,
+                "wcet_fullspeed": 3,
                 "mcet": 0,
                 "processing_times": 1,
                 "can_run_on": [
@@ -100,7 +100,7 @@
             },
             {
                 "id": 10,
-                "wcet_fullspeed": 58,
+                "wcet_fullspeed": 3,
                 "mcet": 0,
                 "processing_times": 2,
                 "can_run_on": [
@@ -111,7 +111,7 @@
             },
             {
                 "id": 11,
-                "wcet_fullspeed": 89,
+                "wcet_fullspeed": 4,
                 "mcet": 0,
                 "processing_times": 6,
                 "can_run_on": [
@@ -275,7 +275,7 @@
                 "period": 50
             }
         ],
-        "deadline": 570
+        "deadline": 150
     },
     "platform": {
         "nodes": [
@@ -431,6 +431,7 @@
             }
         ]
     },
+    
     "frequencies": [
         500,
         1000

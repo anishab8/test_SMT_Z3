@@ -207,8 +207,10 @@
                 "timetriggered": true,
                 "period": 70
             }
-        ]
+        ],
+        "deadline": 550
     },
+    
     "platform": {
         "nodes": [
             {

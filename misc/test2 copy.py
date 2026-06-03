@@ -1,0 +1,303 @@
+import json
+from z3 import *
+from util.KPathFinding2 import compute_k_paths
+
+input_file = "input/graph_0.json"
+with open(input_file, "r") as f:
+    data = json.load(f)
+
+jobs_data       = data["application"]["jobs"]
+messages_data   = data["application"]["messages"]
+platform_nodes  = data["platform"]["nodes"]
+app_deadline    = data["application"]["deadline"]
+
+endsystems  = sorted([n["id"] for n in platform_nodes if not n["is_router"]])
+switches    = sorted([n["id"] for n in platform_nodes if     n["is_router"]])
+all_nodes   = endsystems + switches   # endsystems come first
+
+num_endsystems = len(endsystems)
+num_switches   = len(switches)
+num_nodes      = len(all_nodes)
+
+node_to_idx = {real_id: idx for idx, real_id in enumerate(all_nodes)}
+idx_to_node = {idx: real_id for real_id, idx  in node_to_idx.items()}
+
+es_real_to_esidx = {real_id: i for i, real_id in enumerate(endsystems)}
+
+adj = [[False] * num_nodes for _ in range(num_nodes)]
+for link in data["platform"].get("links", []):
+    i = node_to_idx[link["start"]]
+    j = node_to_idx[link["end"]]
+    adj[i][j] = True
+    adj[j][i] = True
+
+undirected_links = set()
+for ni in range(num_nodes):
+    for nj in range(num_nodes):
+        if adj[ni][nj]:
+            undirected_links.add((min(ni, nj), max(ni, nj)))
+
+def canonical_link(a, b):
+    """Return the canonical (smaller, larger) form of a link."""
+    return (min(a, b), max(a, b))
+path_data = compute_k_paths(input_file, k=2)
+
+
+num_jobs = len(jobs_data)
+num_msgs = len(messages_data)
+
+
+def compute_lmin(jobs_data, messages_data):
+    job_wcet     = {job["id"]: job["wcet_fullspeed"] for job in jobs_data}
+    msg_receiver = {msg["id"]: msg["receiver"]       for msg in messages_data}
+    msgs_sent_by = {}
+    for msg in messages_data:
+        msgs_sent_by.setdefault(msg["sender"], []).append(msg["id"])
+
+    memo = {}
+    def chain_min_time(job_id):
+        """
+        Minimum time from when this job STARTS to when the last
+        job in its downstream chain FINISHES.
+
+        Formula (recursively):
+          wcet(job) + 1 (min tx) + chain_min_time(best downstream job)
+        """
+        if job_id in memo:
+            return memo[job_id]
+
+        outgoing_msgs = msgs_sent_by.get(job_id, [])
+        if not outgoing_msgs:
+            # Leaf job — chain ends here, just its own execution
+            result = job_wcet[job_id]
+        else:
+            # Pick the outgoing message whose downstream chain is longest
+            best_downstream = max(
+                chain_min_time(msg_receiver[mid])
+                for mid in outgoing_msgs
+            )
+            result = job_wcet[job_id] + 1 + best_downstream
+
+        memo[job_id] = result
+        return result
+    all_receivers = {msg["receiver"] for msg in messages_data}
+    root_jobs     = [job["id"] for job in jobs_data if job["id"] not in all_receivers]
+
+    if not root_jobs:
+        root_jobs = [job["id"] for job in jobs_data]  # fallback if graph has cycles
+
+    chain_lb = max(chain_min_time(jid) for jid in root_jobs)
+
+    job_lb = max(job_wcet[jid] for jid in job_wcet)
+
+    return max(chain_lb, job_lb)
+
+
+l_min = compute_lmin(jobs_data, messages_data)
+
+t_max = app_deadline
+
+print(f"Search range: T = {l_min} to {t_max}")
+
+def build_and_solve(T):
+
+    solver = Solver()
+
+    job_assigned_es = [Int(f"job_{i}_endsystem") for i in range(num_jobs)]
+
+    job_start_time = [Int(f"job_{i}_start") for i in range(num_jobs)]
+
+    node_occupied_by = [
+        [Int(f"node_{ni}_at_tf_{tf}") for tf in range(T)]
+        for ni in range(num_nodes)
+    ]
+
+    wire_in_use = {}
+    for tf in range(T):
+        for (ni, nj) in undirected_links:
+            wire_in_use[(tf, ni, nj)] = Bool(f"wire_{ni}_{nj}_at_tf_{tf}")
+
+    msg_has_arrived = [
+        [Int(f"msg_{mid}_arrived_by_tf_{tf}") for tf in range(T)]
+        for mid in range(num_msgs)
+    ]
+
+    for ni in range(num_nodes):
+        for tf in range(T):
+            solver.add(node_occupied_by[ni][tf] >= 0)
+            solver.add(node_occupied_by[ni][tf] <= num_msgs)
+
+    for mid in range(num_msgs):
+        for tf in range(T):
+            solver.add(Or(
+                msg_has_arrived[mid][tf] == 0,        # not arrived yet
+                msg_has_arrived[mid][tf] == mid + 1   # arrived
+            ))
+    for mid in range(num_msgs):
+        # B1: Nothing arrived at start
+        solver.add(msg_has_arrived[mid][0] == 0)
+
+        # B2: Monotone — arrived stays arrived
+        for tf in range(T - 1):
+            solver.add(Implies(
+                msg_has_arrived[mid][tf] == mid + 1,        # if arrived at tf
+                msg_has_arrived[mid][tf + 1] == mid + 1     # still arrived at tf+1
+            ))
+    for i, job in enumerate(jobs_data):
+        allowed_es_indices = [
+            es_real_to_esidx[real_id]
+            for real_id in job["can_run_on"]
+            if real_id in es_real_to_esidx
+        ]
+        solver.add(Or([job_assigned_es[i] == k for k in allowed_es_indices]))
+
+    # C2: Job timing within T timeframes
+    for i, job in enumerate(jobs_data):
+        wcet = job["wcet_fullspeed"]
+        solver.add(job_start_time[i] >= 0)
+        solver.add(job_start_time[i] + wcet <= T)
+
+    for i in range(num_jobs):
+        for j in range(i + 1, num_jobs):
+            wcet_i = jobs_data[i]["wcet_fullspeed"]
+            wcet_j = jobs_data[j]["wcet_fullspeed"]
+            solver.add(Implies(
+                job_assigned_es[i] == job_assigned_es[j],  # same endsystem
+                Or(
+                    # i finishes before j starts
+                    job_start_time[i] + wcet_i <= job_start_time[j],
+                    # OR j finishes before i starts
+                    job_start_time[j] + wcet_j <= job_start_time[i]
+                )
+            ))
+
+    for msg in messages_data:
+        msg_id_0indexed = msg["id"]
+        msg_id_1indexed = msg["id"] + 1  # 1-indexed so 0 means idle in node_occupied_by
+
+        sender_job_idx   = msg["sender"]
+        receiver_job_idx = msg["receiver"]
+        sender_wcet      = jobs_data[sender_job_idx]["wcet_fullspeed"]
+
+        all_options_for_this_msg = []
+        for src_es_idx, src_es_real in enumerate(endsystems):
+            for dst_es_idx, dst_es_real in enumerate(endsystems):
+
+                if src_es_idx == dst_es_idx:
+                    continue  # sender and receiver can't be on same endsystem
+
+                path_key = (src_es_real, dst_es_real)
+                if path_key not in path_data:
+                    continue
+                available_paths = path_data[path_key]["paths"]
+
+                for path in available_paths:
+                 
+                    num_hops = len(path)
+
+                    # Try every possible injection timeframe
+                    for inj_tf in range(T):
+                        arrival_tf = inj_tf + num_hops - 1
+
+                        if arrival_tf >= T:
+                            continue  # message doesn't fit within T timeframes
+
+                        # Build the conjunction for this specific option
+                        option_conditions = []
+
+                        # CONDITION 1: Sender job must be on src_es
+                        option_conditions.append(
+                            job_assigned_es[sender_job_idx] == src_es_idx
+                        )
+
+                        # CONDITION 2: Receiver job must be on dst_es
+                        option_conditions.append(
+                            job_assigned_es[receiver_job_idx] == dst_es_idx
+                        )
+
+                        option_conditions.append(
+                            job_start_time[sender_job_idx] + sender_wcet <= inj_tf
+                        )
+
+                        for step, real_node_id in enumerate(path):
+                            ni  = node_to_idx[real_node_id]
+                            tf  = inj_tf + step
+                            option_conditions.append(
+                                node_occupied_by[ni][tf] == msg_id_1indexed
+                            )
+
+                        for step in range(len(path) - 1):
+                            ni  = node_to_idx[path[step]]
+                            nj  = node_to_idx[path[step + 1]]
+                            tf  = inj_tf + step
+                            link_key = (tf, min(ni, nj), max(ni, nj))
+                            if link_key in wire_in_use:
+                                option_conditions.append(wire_in_use[link_key])
+                        option_conditions.append(
+                            msg_has_arrived[msg_id_0indexed][arrival_tf] == msg_id_1indexed
+                        )
+
+                        option_conditions.append(
+                            job_start_time[receiver_job_idx] >= arrival_tf + 1
+                        )
+
+                        all_options_for_this_msg.append(And(option_conditions))
+
+
+        if all_options_for_this_msg:
+            solver.add(Or(all_options_for_this_msg))
+        else:
+
+            solver.add(BoolVal(False))
+            return False, None
+
+    result = solver.check()
+
+    if result == sat:
+        return True, solver.model()
+    else:
+        return False, None
+
+best_model  = None
+optimal_T   = None
+
+for T in range(l_min, t_max + 1):
+    print(f"Trying T = {T}...")
+    feasible, model = build_and_solve(T)
+
+    if feasible:
+        print(f"SAT at T = {T} — optimal schedule found!")
+        best_model = model
+        optimal_T  = T
+        break
+    else:
+        print(f"UNSAT at T = {T} — trying larger T")
+
+if best_model is not None:
+    output = {
+        "optimal_makespan": optimal_T,
+        "schedule": []
+    }
+
+    for i, job in enumerate(jobs_data):
+        es_idx      = best_model[Int(f"job_{i}_endsystem")].as_long()
+        real_node   = endsystems[es_idx]
+        start_time  = best_model[Int(f"job_{i}_start")].as_long()
+        wcet        = job["wcet_fullspeed"]
+
+        output["schedule"].append({
+            "job_id":        job["id"],
+            "assigned_node": real_node,
+            "start_time":    start_time,
+            "finish_time":   start_time + wcet,
+            "wcet":          wcet,
+        })
+
+    base_name   = input_file.replace("input/", "").replace(".json", "")
+    output_file = f"output/{base_name}_smt_output.json"
+    with open(output_file, "w") as f:
+        json.dump(output, f, indent=4)
+    print(f"Schedule written to {output_file}")
+
+else:
+    print("No feasible schedule exists within the application deadline.")

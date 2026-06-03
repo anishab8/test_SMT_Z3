@@ -133,30 +133,58 @@ num_msgs = len(messages_data)
 #   chain(M0) = 1 + chain(M1) = 3
 #   l_min = 3
 # =============================================================================
-def compute_lmin(messages_data):
-    # "Which job receives message mid?"
-    msg_receiver = {msg["id"]: msg["receiver"] for msg in messages_data}
-
-    # "Which messages does job j send?"
-    msgs_sent_by_job = {}
+def compute_lmin(jobs_data, messages_data):
+    job_wcet     = {job["id"]: job["wcet_fullspeed"] for job in jobs_data}
+    msg_receiver = {msg["id"]: msg["receiver"]       for msg in messages_data}
+    msgs_sent_by = {}
     for msg in messages_data:
-        msgs_sent_by_job.setdefault(msg["sender"], []).append(msg["id"])
+        msgs_sent_by.setdefault(msg["sender"], []).append(msg["id"])
 
     memo = {}
-    def chain_length(mid):
-        if mid in memo:
-            return memo[mid]
-        receiving_job = msg_receiver[mid]
-        outgoing_msgs = msgs_sent_by_job.get(receiving_job, [])
+    def chain_min_time(job_id):
+        """
+        Minimum time from when this job STARTS to when the last
+        job in its downstream chain FINISHES.
+
+        Formula (recursively):
+          wcet(job) + 1 (min tx) + chain_min_time(best downstream job)
+        """
+        if job_id in memo:
+            return memo[job_id]
+
+        outgoing_msgs = msgs_sent_by.get(job_id, [])
         if not outgoing_msgs:
-            memo[mid] = 1
+            # Leaf job — chain ends here, just its own execution
+            result = job_wcet[job_id]
         else:
-            memo[mid] = 1 + max(chain_length(m) for m in outgoing_msgs)
-        return memo[mid]
+            # Pick the outgoing message whose downstream chain is longest
+            best_downstream = max(
+                chain_min_time(msg_receiver[mid])
+                for mid in outgoing_msgs
+            )
+            result = job_wcet[job_id] + 1 + best_downstream
 
-    return max(chain_length(msg["id"]) for msg in messages_data) if messages_data else 1
+        memo[job_id] = result
+        return result
 
-l_min = compute_lmin(messages_data)
+    # Root jobs: jobs that receive no incoming message (chain entry points)
+    all_receivers = {msg["receiver"] for msg in messages_data}
+    root_jobs     = [job["id"] for job in jobs_data if job["id"] not in all_receivers]
+
+    if not root_jobs:
+        root_jobs = [job["id"] for job in jobs_data]  # fallback if graph has cycles
+
+    chain_lb = max(chain_min_time(jid) for jid in root_jobs)
+
+    # Also: a single job might dominate if its wcet alone is large
+    job_lb = max(job_wcet[jid] for jid in job_wcet)
+
+    return max(chain_lb, job_lb)
+
+
+l_min = compute_lmin(jobs_data, messages_data)
+
+
 t_max = app_deadline
 
 print(f"Search range: T = {l_min} to {t_max}")
