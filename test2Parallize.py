@@ -1,57 +1,243 @@
 import argparse
+import glob
 import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
 from z3 import *
 from util.KPathFinding2 import compute_k_paths
 
+SUPPORTED_SOLVERS = ("z3", "cvc5", "boolector")
+SOLVER_TIMEOUT_MS = 300000
+DEFAULT_INPUT_FILE = "input/graph_0.json"
+
 # ── module-level setup (safe to run in workers too) ──
-parser = argparse.ArgumentParser(
-    description="Find an SMT schedule using the hop-time routing model."
-)
-parser.add_argument(
-    "input_file",
-    nargs="?",
-    default="input/graph_1.json",
-    help="Input JSON file. Defaults to input/graph_1.json.",
-)
-args = parser.parse_args()
-
-input_file = args.input_file
-with open(input_file, "r") as f:
-    data = json.load(f)
-
-jobs_data      = data["application"]["jobs"]
-messages_data  = data["application"]["messages"]
-platform_nodes = data["platform"]["nodes"]
-app_deadline   = data["application"]["deadline"]
-
-endsystems = sorted([n["id"] for n in platform_nodes if not n["is_router"]])
-switches   = sorted([n["id"] for n in platform_nodes if     n["is_router"]])
-all_nodes  = endsystems + switches
-
-num_endsystems = len(endsystems)
-num_switches   = len(switches)
-num_nodes      = len(all_nodes)
-
-node_to_idx      = {real_id: idx for idx, real_id in enumerate(all_nodes)}
-idx_to_node      = {idx: real_id for real_id, idx  in node_to_idx.items()}
-es_real_to_esidx = {real_id: i   for i, real_id    in enumerate(endsystems)}
-
-adj = [[False] * num_nodes for _ in range(num_nodes)]
-for link in data["platform"].get("links", []):
-    i = node_to_idx[link["start"]]
-    j = node_to_idx[link["end"]]
-    adj[i][j] = True
-    adj[j][i] = True
-
+input_file = None
+data = None
+jobs_data = []
+messages_data = []
+platform_nodes = []
+app_deadline = None
+endsystems = []
+switches = []
+all_nodes = []
+num_endsystems = 0
+num_switches = 0
+num_nodes = 0
+node_to_idx = {}
+idx_to_node = {}
+es_real_to_esidx = {}
+adj = []
 undirected_links = set()
-for ni in range(num_nodes):
-    for nj in range(num_nodes):
-        if adj[ni][nj]:
-            undirected_links.add((min(ni, nj), max(ni, nj)))
+path_data = {}
+num_jobs = 0
+num_msgs = 0
 
-path_data = compute_k_paths(input_file, k=1)
-num_jobs  = len(jobs_data)
-num_msgs  = len(messages_data)
+
+def load_input(new_input_file):
+    global input_file, data, jobs_data, messages_data, platform_nodes, app_deadline
+    global endsystems, switches, all_nodes
+    global num_endsystems, num_switches, num_nodes
+    global node_to_idx, idx_to_node, es_real_to_esidx
+    global adj, undirected_links, path_data, num_jobs, num_msgs
+
+    input_file = new_input_file
+    with open(input_file, "r") as f:
+        data = json.load(f)
+
+    jobs_data      = data["application"]["jobs"]
+    messages_data  = data["application"]["messages"]
+    platform_nodes = data["platform"]["nodes"]
+    app_deadline   = data["application"]["deadline"]
+
+    node_ids = [node["id"] for node in platform_nodes]
+    duplicate_ids = sorted({node_id for node_id in node_ids if node_ids.count(node_id) > 1})
+    if duplicate_ids:
+        raise ValueError(
+            "Platform contains duplicate node id(s): "
+            + ", ".join(str(node_id) for node_id in duplicate_ids)
+        )
+
+    endsystems = sorted([n["id"] for n in platform_nodes if not n["is_router"]])
+    switches   = sorted([n["id"] for n in platform_nodes if     n["is_router"]])
+    all_nodes  = endsystems + switches
+
+    num_endsystems = len(endsystems)
+    num_switches   = len(switches)
+    num_nodes      = len(all_nodes)
+
+    node_to_idx      = {real_id: idx for idx, real_id in enumerate(all_nodes)}
+    idx_to_node      = {idx: real_id for real_id, idx  in node_to_idx.items()}
+    es_real_to_esidx = {real_id: i   for i, real_id    in enumerate(endsystems)}
+
+    adj = [[False] * num_nodes for _ in range(num_nodes)]
+    for link in data["platform"].get("links", []):
+        i = node_to_idx[link["start"]]
+        j = node_to_idx[link["end"]]
+        adj[i][j] = True
+        adj[j][i] = True
+
+    undirected_links = set()
+    for ni in range(num_nodes):
+        for nj in range(num_nodes):
+            if adj[ni][nj]:
+                undirected_links.add((min(ni, nj), max(ni, nj)))
+
+    path_data = compute_k_paths(input_file, k=1)
+    num_jobs  = len(jobs_data)
+    num_msgs  = len(messages_data)
+
+
+load_input(DEFAULT_INPUT_FILE)
+
+
+class SolverBackendError(RuntimeError):
+    pass
+
+
+class Z3ModelAdapter:
+    def __init__(self, model):
+        self.model = model
+
+    def value(self, name):
+        val = self.model[Int(name)]
+        if val is None:
+            raise SolverBackendError(f"Model does not contain value for {name}")
+        return val.as_long()
+
+    def maybe_value(self, name):
+        var = Int(name)
+        val = self.model.eval(var, model_completion=False)
+        if val is None or str(val) == name:
+            return None
+        return val.as_long()
+
+
+class DictModelAdapter:
+    def __init__(self, values):
+        self.values = values
+
+    def value(self, name):
+        if name not in self.values:
+            raise SolverBackendError(f"Model does not contain value for {name}")
+        return self.values[name]
+
+    def maybe_value(self, name):
+        return self.values.get(name)
+
+
+def parse_solver_model(output):
+    values = {}
+
+    # CVC5 prints values as: (define-fun x () Int 12)
+    for name, value in re.findall(
+        r"\(define-fun\s+([^\s()]+)\s+\(\)\s+Int\s+(-?\d+)\)",
+        output,
+    ):
+        values[name] = int(value)
+
+    # Z3-style get-value fallback, useful if a solver is configured that way:
+    # ((x 12))
+    for name, value in re.findall(r"\(\(([^\s()]+)\s+(-?\d+)\)\)", output):
+        values[name] = int(value)
+
+    # SMT-LIB bit-vector model values, used by Boolector/CVC5 on QF_BV:
+    # (define-fun x () (_ BitVec 10) #b0000001100)
+    for name, _, value in re.findall(
+        r"\(define-fun\s+([^\s()]+)\s+\(\)\s+\(_\s+BitVec\s+(\d+)\)\s+(#b[01]+|#x[0-9a-fA-F]+|\(_\s+bv\d+\s+\d+\))\)",
+        output,
+    ):
+        values[name] = parse_bv_value(value)
+
+    return values
+
+
+def parse_bv_value(value):
+    if value.startswith("#b"):
+        return int(value[2:], 2)
+    if value.startswith("#x"):
+        return int(value[2:], 16)
+
+    match = re.match(r"\(_\s+bv(\d+)\s+\d+\)", value)
+    if match:
+        return int(match.group(1))
+
+    raise SolverBackendError(f"Cannot parse bit-vector model value: {value}")
+
+
+def run_external_solver(solver, solver_name):
+    solver_cmd = shutil.which(solver_name)
+    if solver_cmd is None:
+        raise SolverBackendError(
+            f"Selected solver '{solver_name}' was not found on PATH. "
+            f"Install the open-source {solver_name} binary and try again."
+        )
+
+    smt2 = solver.to_smt2()
+    if "(get-model)" not in smt2:
+        smt2 += "\n(get-model)\n"
+
+    with tempfile.NamedTemporaryFile("w", suffix=".smt2", delete=False) as f:
+        f.write(smt2)
+        smt2_file = f.name
+
+    if solver_name == "cvc5":
+        cmd = [solver_cmd, "--produce-models", "--lang", "smt2", smt2_file]
+    elif solver_name == "boolector":
+        cmd = [solver_cmd, "--model-gen", "--smt2-model", smt2_file]
+    else:
+        cmd = [solver_cmd, smt2_file]
+
+    try:
+        try:
+            completed = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=(SOLVER_TIMEOUT_MS // 1000) + 5,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise SolverBackendError(
+                f"Selected solver '{solver_name}' timed out."
+            ) from exc
+    finally:
+        try:
+            os.unlink(smt2_file)
+        except OSError:
+            pass
+
+    combined_output = completed.stdout + completed.stderr
+    first_line = completed.stdout.strip().splitlines()[0].strip() if completed.stdout.strip() else ""
+
+    if completed.returncode != 0:
+        raise SolverBackendError(
+            f"Selected solver '{solver_name}' failed:\n{combined_output.strip()}"
+        )
+
+    if first_line != "sat":
+        return False, None
+
+    values = parse_solver_model(completed.stdout)
+    if not values:
+        raise SolverBackendError(
+            f"Selected solver '{solver_name}' returned SAT but no parseable model."
+        )
+
+    return True, DictModelAdapter(values)
+
+
+def validate_solver_backend(solver_name):
+    if solver_name == "z3":
+        return
+
+    if shutil.which(solver_name) is None:
+        raise SolverBackendError(
+            f"Selected solver '{solver_name}' was not found on PATH. "
+            f"Install the open-source {solver_name} binary and try again."
+        )
 
 
 def compute_lmin(jobs_data, messages_data):
@@ -135,22 +321,60 @@ def build_routing_options(sender_job, receiver_job):
     return routing_options
 
 
-def build_and_solve(T):
+def build_and_solve(T, solver_name):
 
     solver = Solver()
-    solver.set("timeout", 300000)  # 5 minutes per SMT check
+    if solver_name != "boolector":
+        solver.set("timeout", SOLVER_TIMEOUT_MS)  # 5 minutes per SMT check
+
+    use_bv = solver_name == "boolector"
+    bv_width = max(
+        8,
+        (
+            T
+            + max(job["wcet_fullspeed"] for job in jobs_data)
+            + num_nodes
+            + num_msgs
+            + 1
+        ).bit_length() + 2,
+    )
+
+    def var(name):
+        if use_bv:
+            return BitVec(name, bv_width)
+        return Int(name)
+
+    def const(value):
+        if use_bv:
+            return BitVecVal(value, bv_width)
+        return value
+
+    def ult(left, right):
+        if use_bv:
+            return ULT(left, const(right) if isinstance(right, int) else right)
+        return left < right
+
+    def ule(left, right):
+        if use_bv:
+            return ULE(left, const(right) if isinstance(right, int) else right)
+        return left <= right
+
+    def uge(left, right):
+        if use_bv:
+            return UGE(left, const(right) if isinstance(right, int) else right)
+        return left >= right
 
     # ============================================================
     # JOB VARIABLES
     # ============================================================
 
     job_assigned_es = [
-        Int(f"job_{i}_endsystem")
+        var(f"job_{i}_endsystem")
         for i in range(num_jobs)
     ]
 
     job_start_time = [
-        Int(f"job_{i}_start")
+        var(f"job_{i}_start")
         for i in range(num_jobs)
     ]
 
@@ -175,17 +399,17 @@ def build_and_solve(T):
     #
 
     msg_inject_time = [
-        Int(f"msg_{mid}_inject")
+        var(f"msg_{mid}_inject")
         for mid in range(num_msgs)
     ]
 
     msg_arrival_time = [
-        Int(f"msg_{mid}_arrival")
+        var(f"msg_{mid}_arrival")
         for mid in range(num_msgs)
     ]
 
     msg_path_choice = [
-        Int(f"msg_{mid}_path_choice")
+        var(f"msg_{mid}_path_choice")
         for mid in range(num_msgs)
     ]
 
@@ -211,15 +435,15 @@ def build_and_solve(T):
 
         solver.add(
             Or([
-                job_assigned_es[i] == x
+                job_assigned_es[i] == const(x)
                 for x in allowed
             ])
         )
 
         wcet = job["wcet_fullspeed"]
 
-        solver.add(job_start_time[i] >= 0)
-        solver.add(job_start_time[i] + wcet <= T)
+        solver.add(uge(job_start_time[i], 0))
+        solver.add(ule(job_start_time[i] + const(wcet), T))
 
     # ============================================================
     # CPU MUTUAL EXCLUSION
@@ -236,8 +460,8 @@ def build_and_solve(T):
                 Implies(
                     job_assigned_es[i] == job_assigned_es[j],
                     Or(
-                        job_start_time[i] + wcet_i <= job_start_time[j],
-                        job_start_time[j] + wcet_j <= job_start_time[i]
+                        ule(job_start_time[i] + const(wcet_i), job_start_time[j]),
+                        ule(job_start_time[j] + const(wcet_j), job_start_time[i])
                     )
                 )
             )
@@ -286,7 +510,7 @@ def build_and_solve(T):
 
         solver.add(
             Or([
-                msg_path_choice[mid] == rid
+                msg_path_choice[mid] == const(rid)
                 for (rid, _, _, _) in routing_options
             ])
         )
@@ -296,16 +520,16 @@ def build_and_solve(T):
         # --------------------------------------------------------
 
         solver.add(
-            msg_inject_time[mid]
-            >=
-            job_start_time[sender_job] + sender_wcet
+            uge(
+                msg_inject_time[mid],
+                job_start_time[sender_job] + const(sender_wcet),
+            )
         )
+        solver.add(uge(msg_inject_time[mid], 0))
+        solver.add(ult(msg_inject_time[mid], T))
 
-        solver.add(msg_inject_time[mid] >= 0)
-        solver.add(msg_inject_time[mid] < T)
-
-        solver.add(msg_arrival_time[mid] >= 0)
-        solver.add(msg_arrival_time[mid] < T)
+        solver.add(uge(msg_arrival_time[mid], 0))
+        solver.add(ult(msg_arrival_time[mid], T))
 
         # --------------------------------------------------------
         # ROUTING CASES
@@ -329,17 +553,17 @@ def build_and_solve(T):
             conds.append(
                 job_assigned_es[sender_job]
                 ==
-                src_es_idx
+                const(src_es_idx)
             )
 
             conds.append(
                 job_assigned_es[receiver_job]
                 ==
-                dst_es_idx
+                const(dst_es_idx)
             )
 
             conds.append(
-                msg_path_choice[mid] == rid
+                msg_path_choice[mid] == const(rid)
             )
 
             # ----------------------------------------------------
@@ -356,12 +580,12 @@ def build_and_solve(T):
 
             for hop in range(num_hops):
 
-                hvar = Int(f"msg_{mid}_hop_{rid}_{hop}")
+                hvar = var(f"msg_{mid}_hop_{rid}_{hop}")
 
                 local_hop_times.append(hvar)
 
-                solver.add(hvar >= 0)
-                solver.add(hvar < T)
+                solver.add(uge(hvar, 0))
+                solver.add(ult(hvar, T))
 
             hop_times[(mid, rid)] = local_hop_times
 
@@ -390,9 +614,10 @@ def build_and_solve(T):
             for h in range(num_hops - 1):
 
                 conds.append(
-                    local_hop_times[h + 1]
-                    >=
-                    local_hop_times[h] + 1
+                    uge(
+                        local_hop_times[h + 1],
+                        local_hop_times[h] + const(1)
+                    )
                 )
 
             # ----------------------------------------------------
@@ -404,7 +629,7 @@ def build_and_solve(T):
                 conds.append(
                     msg_arrival_time[mid]
                     ==
-                    local_hop_times[-1] + 1
+                    local_hop_times[-1] + const(1)
                 )
 
             else:
@@ -420,9 +645,7 @@ def build_and_solve(T):
             # ----------------------------------------------------
 
             conds.append(
-                job_start_time[receiver_job]
-                >=
-                msg_arrival_time[mid]
+                uge(job_start_time[receiver_job], msg_arrival_time[mid])
             )
 
             # ----------------------------------------------------
@@ -487,10 +710,10 @@ def build_and_solve(T):
 
                     node_intervals.append(
                         (
-                            path_nodes[node_pos],
-                            local_hop_times[node_pos - 1] + 1,
-                            local_hop_times[node_pos]
-                        )
+                        path_nodes[node_pos],
+                        local_hop_times[node_pos - 1] + const(1),
+                        local_hop_times[node_pos]
+                    )
                     )
 
                 node_intervals.append(
@@ -543,8 +766,8 @@ def build_and_solve(T):
                 solver.add(
                     Implies(
                         And(
-                            msg_path_choice[mid_i] == rid_i,
-                            msg_path_choice[mid_j] == rid_j
+                            msg_path_choice[mid_i] == const(rid_i),
+                            msg_path_choice[mid_j] == const(rid_j)
                         ),
                         hop_time_i != hop_time_j
                     )
@@ -570,12 +793,12 @@ def build_and_solve(T):
                 solver.add(
                     Implies(
                         And(
-                            msg_path_choice[mid_i] == rid_i,
-                            msg_path_choice[mid_j] == rid_j
+                            msg_path_choice[mid_i] == const(rid_i),
+                            msg_path_choice[mid_j] == const(rid_j)
                         ),
                         Or(
-                            end_i < start_j,
-                            end_j < start_i
+                            ult(end_i, start_j),
+                            ult(end_j, start_i)
                         )
                     )
                 )
@@ -584,16 +807,19 @@ def build_and_solve(T):
     # SOLVE
     # ============================================================
 
+    if solver_name != "z3":
+        return run_external_solver(solver, solver_name)
+
     result = solver.check()
 
     if result != sat:
         return False, None
 
-    return True, solver.model()
+    return True, Z3ModelAdapter(solver.model())
 
-def try_T(T):
+def try_T(T, solver_name):
 
-    feasible, model = build_and_solve(T)
+    feasible, model = build_and_solve(T, solver_name)
 
     if not feasible:
         return T, False, None
@@ -603,18 +829,22 @@ def try_T(T):
     # ============================================================
 
     job_info = {}
+    job_dependencies = {
+        job["id"]: sorted({
+            msg["sender"]
+            for msg in messages_data
+            if msg["receiver"] == job["id"]
+        })
+        for job in jobs_data
+    }
 
     for i, job in enumerate(jobs_data):
 
-        es_idx = model[
-            Int(f"job_{i}_endsystem")
-        ].as_long()
+        es_idx = model.value(f"job_{i}_endsystem")
 
         real_node = endsystems[es_idx]
 
-        start_time = model[
-            Int(f"job_{i}_start")
-        ].as_long()
+        start_time = model.value(f"job_{i}_start")
 
         wcet = job["wcet_fullspeed"]
 
@@ -624,6 +854,7 @@ def try_T(T):
             "start_time": start_time,
             "finish_time": start_time + wcet,
             "wcet": wcet,
+            "dependencies": job_dependencies[job["id"]],
         }
 
     # ============================================================
@@ -642,17 +873,11 @@ def try_T(T):
         sender_node = job_info[sender_job]["assigned_node"]
         receiver_node = job_info[receiver_job]["assigned_node"]
 
-        inject_tf = model[
-            Int(f"msg_{mid}_inject")
-        ].as_long()
+        inject_tf = model.value(f"msg_{mid}_inject")
 
-        arrival_tf = model[
-            Int(f"msg_{mid}_arrival")
-        ].as_long()
+        arrival_tf = model.value(f"msg_{mid}_arrival")
 
-        chosen_rid = model[
-            Int(f"msg_{mid}_path_choice")
-        ].as_long()
+        chosen_rid = model.value(f"msg_{mid}_path_choice")
 
         routing_options = build_routing_options(sender_job, receiver_job)
         chosen_path_nodes = None
@@ -674,14 +899,12 @@ def try_T(T):
 
             var_name = f"msg_{mid}_hop_{chosen_rid}_{hop_idx}"
 
-            var = Int(var_name)
+            val = model.maybe_value(var_name)
 
-            val = model.eval(var, model_completion=False)
-
-            if val is None or str(val) == var_name:
+            if val is None:
                 break
 
-            hop_schedule.append(val.as_long())
+            hop_schedule.append(val)
 
             hop_idx += 1
 
@@ -730,8 +953,42 @@ def try_T(T):
 
     return T, True, schedule
 
-# ── CRITICAL: all execution must be inside this guard on Windows ──
-if __name__ == "__main__":
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="SMT-based scheduler for distributed time-sensitive networks."
+    )
+    parser.add_argument(
+        "--input",
+        default=DEFAULT_INPUT_FILE,
+        help=f"Scheduler input JSON file. Default: {DEFAULT_INPUT_FILE}.",
+    )
+    parser.add_argument(
+        "--input-glob",
+        action="append",
+        help=(
+            "Glob pattern for running multiple scheduler input JSON files, "
+            "for example 'input/cloud2_*.json'. Can be passed more than once."
+        ),
+    )
+    parser.add_argument(
+        "--context",
+        help=(
+            "Context model JSON whose generated_inputs should be scheduled. "
+            "Use util/context_model.py to create processor-failure contexts."
+        ),
+    )
+    parser.add_argument(
+        "--solver",
+        choices=SUPPORTED_SOLVERS,
+        default="z3",
+        help="SMT solver backend to use. Default: z3.",
+    )
+    return parser.parse_args()
+
+
+def solve_input_file(input_path, solver_name):
+    load_input(input_path)
+
     l_min = compute_lmin(jobs_data, messages_data)
     t_max = app_deadline
 
@@ -742,13 +999,18 @@ if __name__ == "__main__":
     best_schedule = None
     optimal_T     = None
 
+    print(f"Selected solver: {solver_name}")
     print(f"Search range: T = {low} to {high}")
 
     while low <= high:
         mid = (low + high) // 2
         print(f"Trying T = {mid}...")
 
-        T_val, feasible, schedule = try_T(mid)
+        try:
+            T_val, feasible, schedule = try_T(mid, solver_name)
+        except SolverBackendError as exc:
+            print(f"\nSolver backend error: {exc}")
+            return 2
 
         if feasible:
             print(f"  SAT at T = {T_val}")
@@ -763,11 +1025,15 @@ if __name__ == "__main__":
         print(f"\nOptimal T = {optimal_T} -- stopping search.")
 
         output = {
+            "solver":           solver_name,
+            "input_file":       input_file,
             "optimal_makespan": optimal_T,
             "schedule":         best_schedule,
         }
-        base_name   = input_file.replace("input/", "").replace(".json", "")
-        output_file = f"output/{base_name}_smt_output.json"
+        base_name = os.path.splitext(os.path.basename(input_file))[0]
+        suffix = "smt_output" if solver_name == "z3" else f"{solver_name}_smt_output"
+        os.makedirs("output", exist_ok=True)
+        output_file = f"output/{base_name}_{suffix}.json"
         with open(output_file, "w") as f:
             json.dump(output, f, indent=4)
         print(f"Schedule written to {output_file}")
@@ -791,3 +1057,53 @@ if __name__ == "__main__":
 
     else:
         print("No feasible schedule exists within the application deadline.")
+        return 1
+
+    return 0
+
+
+def main():
+    args = parse_args()
+    solver_name = args.solver
+
+    try:
+        validate_solver_backend(solver_name)
+    except SolverBackendError as exc:
+        print(f"\nSolver backend error: {exc}")
+        return 2
+
+    input_files = []
+    if args.context:
+        with open(args.context, "r") as f:
+            context_model = json.load(f)
+        input_files = context_model.get("generated_inputs", [])
+        if not input_files:
+            print("Context model does not contain any generated_inputs.")
+            return 1
+    elif args.input_glob:
+        for pattern in args.input_glob:
+            input_files.extend(sorted(glob.glob(pattern)))
+        input_files = sorted(dict.fromkeys(input_files))
+        if not input_files:
+            print("No input files matched --input-glob pattern(s).")
+            return 1
+    else:
+        input_files = [args.input]
+
+    exit_code = 0
+    for idx, input_path in enumerate(input_files, start=1):
+        if len(input_files) > 1:
+            print(f"\n{'#'*60}")
+            print(f"Scheduling input {idx}/{len(input_files)}: {input_path}")
+            print(f"{'#'*60}")
+
+        result = solve_input_file(input_path, solver_name)
+        if result != 0:
+            exit_code = result
+
+    return exit_code
+
+
+# ── CRITICAL: all execution must be inside this guard on Windows ──
+if __name__ == "__main__":
+    raise SystemExit(main())
