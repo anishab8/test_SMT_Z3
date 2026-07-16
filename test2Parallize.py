@@ -1,11 +1,21 @@
+import argparse
 import json
+import shutil
+from pathlib import Path
 from z3 import *
 from util.KPathFinding2 import compute_k_paths
 
 # ── module-level setup (safe to run in workers too) ──
-input_file = "input/graph_0.json"
-with open(input_file, "r") as f:
-    data = json.load(f)
+DEFAULT_INPUT_FILE = "input/graph_2.json"
+
+
+def load_input(input_path):
+    with open(input_path, "r") as f:
+        return json.load(f)
+
+
+input_file = DEFAULT_INPUT_FILE
+data = load_input(input_file)
 
 jobs_data      = data["application"]["jobs"]
 messages_data  = data["application"]["messages"]
@@ -67,13 +77,14 @@ def compute_lmin(jobs_data, messages_data):
     all_receivers = {msg["receiver"] for msg in messages_data}
     root_jobs     = [job["id"] for job in jobs_data if job["id"] not in all_receivers]
     if not root_jobs:
-        root_jobs = [job["id"] for job in jobs_data]
+        root_jobs = [job["id"] for job in jobs_data]   
 
     return max(max(chain_min_time(jid) for jid in root_jobs),
                max(job_wcet[jid] for jid in job_wcet))
 
 
 def build_routing_options(sender_job, receiver_job):
+    
     routing_options = []
     option_counter = 0
 
@@ -119,7 +130,8 @@ def build_routing_options(sender_job, receiver_job):
                 )
 
                 option_counter += 1
-
+                
+   
     return routing_options
 
 
@@ -264,6 +276,7 @@ def build_and_solve(T):
         # --------------------------------------------------------
 
         routing_options = build_routing_options(sender_job, receiver_job)
+        
 
         if not routing_options:
             return False, None
@@ -729,6 +742,56 @@ def try_T(T):
 
 # ── CRITICAL: all execution must be inside this guard on Windows ──
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run the SMT scheduler.")
+    parser.add_argument(
+        "input_file",
+        nargs="?",
+        default=DEFAULT_INPUT_FILE,
+        help="Path to the scheduler input JSON file.",
+    )
+    parser.add_argument(
+        "--output-file",
+        help="Optional path where the generated schedule JSON should be copied.",
+    )
+    args = parser.parse_args()
+
+    input_file = args.input_file
+    data = load_input(input_file)
+
+    jobs_data      = data["application"]["jobs"]
+    messages_data  = data["application"]["messages"]
+    platform_nodes = data["platform"]["nodes"]
+    app_deadline   = data["application"]["deadline"]
+
+    endsystems = sorted([n["id"] for n in platform_nodes if not n["is_router"]])
+    switches   = sorted([n["id"] for n in platform_nodes if     n["is_router"]])
+    all_nodes  = endsystems + switches
+
+    num_endsystems = len(endsystems)
+    num_switches   = len(switches)
+    num_nodes      = len(all_nodes)
+
+    node_to_idx      = {real_id: idx for idx, real_id in enumerate(all_nodes)}
+    idx_to_node      = {idx: real_id for real_id, idx  in node_to_idx.items()}
+    es_real_to_esidx = {real_id: i   for i, real_id    in enumerate(endsystems)}
+
+    adj = [[False] * num_nodes for _ in range(num_nodes)]
+    for link in data["platform"].get("links", []):
+        i = node_to_idx[link["start"]]
+        j = node_to_idx[link["end"]]
+        adj[i][j] = True
+        adj[j][i] = True
+
+    undirected_links = set()
+    for ni in range(num_nodes):
+        for nj in range(num_nodes):
+            if adj[ni][nj]:
+                undirected_links.add((min(ni, nj), max(ni, nj)))
+
+    path_data = compute_k_paths(input_file, k=1)
+    num_jobs  = len(jobs_data)
+    num_msgs  = len(messages_data)
+
     l_min = compute_lmin(jobs_data, messages_data)
     t_max = app_deadline
 
@@ -740,21 +803,41 @@ if __name__ == "__main__":
     optimal_T     = None
 
     print(f"Search range: T = {low} to {high}")
+    NUM_WORKERS = 1
 
     while low <= high:
         mid = (low + high) // 2
-        print(f"Trying T = {mid}...")
 
-        T_val, feasible, schedule = try_T(mid)
+        # build a contiguous candidate block centered near mid
+        half = NUM_WORKERS // 2
+        a = max(low, mid - half)
+        b = min(high, a + NUM_WORKERS - 1)
 
-        if feasible:
-            print(f"  SAT at T = {T_val}")
-            optimal_T = T_val
-            best_schedule = schedule
-            high = mid - 1
+        candidates = list(range(a, b + 1))
+        print(f"Trying T candidates: {candidates} ...")
+
+        results = [try_T(candidate) for candidate in candidates]
+
+        # collect SAT results
+        sat_ts = [t for (t, feasible, sched) in results if feasible]
+
+        if sat_ts:
+            t_sat = min(sat_ts)
+            print(f"  SAT found at T = {t_sat}")
+
+            # store schedule for smallest SAT found
+            for (t, feasible, sched) in results:
+                if t == t_sat and feasible:
+                    optimal_T = t_sat
+                    best_schedule = sched
+                    break
+
+            # narrow search to values < t_sat
+            high = t_sat - 1
         else:
-            print(f"  UNSAT/UNKNOWN at T = {T_val}")
-            low = mid + 1
+            print(f"  No SAT in range {a}..{b}")
+            # all tested were UNSAT -> advance lower bound
+            low = b + 1
 
     if best_schedule is not None:
         print(f"\nOptimal T = {optimal_T} -- stopping search.")
@@ -763,11 +846,15 @@ if __name__ == "__main__":
             "optimal_makespan": optimal_T,
             "schedule":         best_schedule,
         }
-        base_name   = input_file.replace("input/", "").replace(".json", "")
+        base_name   = Path(input_file).stem
         output_file = f"output/{base_name}_smt_output.json"
         with open(output_file, "w") as f:
             json.dump(output, f, indent=4)
         print(f"Schedule written to {output_file}")
+
+        if args.output_file:
+            shutil.copyfile(output_file, args.output_file)
+            print(f"Schedule copied to {args.output_file}")
 
         # ── Pretty-print summary to console ──
         print(f"\n{'='*60}")

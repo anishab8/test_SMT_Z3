@@ -208,9 +208,8 @@
                 "period": 70
             }
         ],
-        "deadline": 550
+        "deadline": 558
     },
-    
     "platform": {
         "nodes": [
             {
@@ -376,5 +375,9 @@
             "wcct": 0,
             "wccr": 1
         }
-    ]
+    ],
+    "generation_metadata": {
+        "l_min": 429,
+        "difficulty_level": 1.3
+    }
 }

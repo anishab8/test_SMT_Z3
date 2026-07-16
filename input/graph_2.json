@@ -462,7 +462,8 @@
                 "timetriggered": true,
                 "period": 30
             }
-        ]
+        ],
+        "deadline": 840
     },
     "platform": {
         "nodes": [
@@ -629,5 +630,9 @@
             "wcct": 0,
             "wccr": 1
         }
-    ]
+    ],
+    "generation_metadata": {
+        "l_min": 646,
+        "difficulty_level": 1.3
+    }
 }

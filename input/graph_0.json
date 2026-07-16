@@ -275,7 +275,7 @@
                 "period": 50
             }
         ],
-        "deadline": 570
+        "deadline": 714
     },
     "platform": {
         "nodes": [
@@ -442,5 +442,9 @@
             "wcct": 0,
             "wccr": 1
         }
-    ]
+    ],
+    "generation_metadata": {
+        "l_min": 549,
+        "difficulty_level": 1.3
+    }
 }

@@ -75,4 +75,5 @@ def compute_k_paths(json_file, k=1):
     return result
 
 
-# print(compute_k_paths("../input/graph_0.json", k=1))
+if __name__ == "__main__":
+    print(compute_k_paths("../input/CloudModel1.json", k=1))

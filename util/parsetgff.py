@@ -2,6 +2,12 @@ import re
 import json
 import random
 import sys
+import math
+from compute_min import compute_lmin
+
+# Deadline difficulty is a multiplier over the longest-chain lower bound.
+# Examples: 1.1 hard, 1.3 medium-hard, 1.5 medium, 1.7 easier, 2.0 easy.
+DEFAULT_DIFFICULTY_LEVEL = 1.3
 
 # ─── Platform (fixed, from example) ───────────────────────────────────────────
 PLATFORM = {
@@ -99,7 +105,7 @@ def parse_tgff(filepath):
 
 
 # ─── JSON Generator ───────────────────────────────────────────────────────────
-def generate_json_for_graph(graph):
+def generate_json_for_graph(graph, difficulty_level=DEFAULT_DIFFICULTY_LEVEL):
     """Generate JSON for a SINGLE task graph."""
 
     # ── Assign local IDs ───────────────────────────────────────────────
@@ -144,14 +150,22 @@ def generate_json_for_graph(graph):
         })
         msg_id += 1
 
+    l_min = compute_lmin(jobs, messages, verbose=False)
+    deadline = math.ceil(l_min * difficulty_level)
+
     return {
         "application": {
             "jobs": jobs,
-            "messages": messages
+            "messages": messages,
+            "deadline": deadline
         },
         "platform": PLATFORM,
         "frequencies": FREQUENCIES,
-        "schemes": SCHEMES
+        "schemes": SCHEMES,
+        "generation_metadata": {
+            "l_min": l_min,
+            "difficulty_level": difficulty_level
+        }
     }
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
@@ -178,4 +192,9 @@ if __name__ == "__main__":
         with open(output_file, "w") as f:
             json.dump(result, f, indent=4)
 
-        print(f"Written: {output_file}")
+        print(
+            f"Written: {output_file} "
+            f"(l_min={result['generation_metadata']['l_min']}, "
+            f"difficulty={result['generation_metadata']['difficulty_level']}, "
+            f"deadline={result['application']['deadline']})"
+        )
